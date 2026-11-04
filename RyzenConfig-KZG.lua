@@ -1,97 +1,17 @@
 repeat task.wait() until game:IsLoaded() and game.Players.LocalPlayer 
 
+-- Cấu hình Key tự động check ngầm
+getgenv().RyzenConfigKey = "RyzenConfigX3D"
 local CORRECT_KEY = "RyzenConfigX3D"
 
-local CoreGui = game:GetService("CoreGui")
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "KeySystemGui"
-ScreenGui.Parent = CoreGui
-ScreenGui.ResetOnSpawn = false
-
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 350, 0, 180)
-MainFrame.Position = UDim2.new(0.5, -175, 0.5, -90)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-MainFrame.BorderSizePixel = 0
-MainFrame.Parent = ScreenGui
-
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = MainFrame
-
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 40)
-Title.BackgroundTransparency = 1
-Title.Text = "RYZENX - KEY SYSTEM"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 18
-Title.Font = Enum.Font.SourceSansBold
-Title.Parent = MainFrame
-
-local TextBox = Instance.new("TextBox")
-TextBox.Size = UDim2.new(0.85, 0, 0, 40)
-TextBox.Position = UDim2.new(0.075, 0, 0, 50)
-TextBox.PlaceholderText = "Nhập Key vào đây..."
-TextBox.Text = ""
-TextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-TextBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-TextBox.TextSize = 14
-TextBox.Font = Enum.Font.SourceSans
-TextBox.Parent = MainFrame
-
-local BoxCorner = Instance.new("UICorner")
-BoxCorner.CornerRadius = UDim.new(0, 6)
-BoxCorner.Parent = TextBox
-
-local CheckButton = Instance.new("TextButton")
-CheckButton.Size = UDim2.new(0.85, 0, 0, 40)
-CheckButton.Position = UDim2.new(0.075, 0, 0, 105)
-CheckButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-CheckButton.Text = "KIỂM TRA & XÁC THỰC KEY"
-CheckButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-CheckButton.TextSize = 14
-CheckButton.Font = Enum.Font.SourceSansBold
-CheckButton.Parent = MainFrame
-
-local BtnCorner = Instance.new("UICorner")
-BtnCorner.CornerRadius = UDim.new(0, 6)
-BtnCorner.Parent = CheckButton
-
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(1, 0, 0, 20)
-StatusLabel.Position = UDim2.new(0, 0, 0, 150)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = ""
-StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-StatusLabel.TextSize = 13
-StatusLabel.Font = Enum.Font.SourceSans
-StatusLabel.Parent = MainFrame
-
--- Xử lý kiểm tra Key
-local keyPassed = false
-
-CheckButton.MouseButton1Click:Connect(function()
-    local enteredKey = TextBox.Text
-    if enteredKey == CORRECT_KEY then
-        StatusLabel.TextColor3 = Color3.fromRGB(50, 255, 50)
-        StatusLabel.Text = "Key chính xác! Đang khởi động script..."
-        keyPassed = true
-        task.wait(0.8)
-        ScreenGui:Destroy()
-    else
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-        StatusLabel.Text = "Key sai! Vui lòng nhập lại."
-    end
-end)
-
--- Chờ người dùng nhập đúng key mới cho chạy tiếp phần sau
-repeat task.wait(0.5) until keyPassed == true
+-- Kiểm tra Key ngầm ngay lập tức
+if getgenv().RyzenConfigKey ~= CORRECT_KEY then
+    warn("[RyzenX] Key không chính xác! Vui lòng kiểm tra lại RyzenConfigKey.")
+    return -- Dừng hẳn, không load script nếu sai key
+end
 
 --------------------------------------------------------------------------------
--- 🚀 SAU KHI CHECK KEY XONG -> KHỞI ĐỘNG SCRIPT & BRING MOB
+-- 🚀 SAU KHI CHECK KEY THÀNH CÔNG -> KHỞI ĐỘNG SCRIPT & BRING MOB
 --------------------------------------------------------------------------------
 
 getgenv().Key = CORRECT_KEY
@@ -106,6 +26,7 @@ getgenv().LockMobName = true        -- Chỉ gom quái cùng tên để tránh k
 -- Luồng xử lý Bring Mob ngầm
 task.spawn(function()
     local RunService = game:GetService("RunService")
+    local LocalPlayer = game.Players.LocalPlayer
     local Enemies = workspace:WaitForChild("Enemies")
 
     -- Mở rộng Network Ownership liên tục
@@ -207,4 +128,5 @@ task.spawn(function()
     end)
 end)
 
+-- Tải Banana Hub gốc
 return loadstring(game:HttpGet("https://banana-hub.xyz/loader/banana.lua"))()
