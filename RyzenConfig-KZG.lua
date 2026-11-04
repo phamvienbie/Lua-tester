@@ -13,10 +13,6 @@ end
 --------------------------------------------------------------------------------
 -- 🚀 SAU KHI CHECK KEY THÀNH CÔNG -> KHỞI ĐỘNG SCRIPT & BRING MOB
 --------------------------------------------------------------------------------
-
-getgenv().Key = CORRECT_KEY
-getgenv().__BANANA_SCRIPT_ROUTE = "kaigod"
-
 -- Cấu hình Bring Mob nâng cao
 getgenv().BringMob = true
 getgenv().BringDistance = 500       -- Tầm quét gom quái (500 studs)
