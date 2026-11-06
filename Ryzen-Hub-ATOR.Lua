@@ -1036,7 +1036,7 @@ do
         if nape then
             local offset = Vector3.new(
                 math.cos(orbitAngle) * ORBIT_RADIUS,
-                math.max(Cfg.FlyHeight or 230, 150) + math.sin(orbitAngle * 2) * ORBIT_BOB,
+                math.max(Cfg.FlyHeight or 230, 70) + math.sin(orbitAngle * 2) * ORBIT_BOB,
                 math.sin(orbitAngle * 2) * ORBIT_RADIUS
             )
             local goal = nape.Position + offset
