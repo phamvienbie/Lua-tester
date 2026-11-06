@@ -2168,7 +2168,6 @@ do
         end
     end)
 end
-
     local RunService = game:GetService("RunService")
     local Players = game:GetService("Players")
     local LocalPlayer = Players.LocalPlayer
@@ -2179,7 +2178,8 @@ end
         AttackSpeed = 2,
         AutoFarm = true,
         HitboxExpander = true,
-        ExpansionSize = Vector3.new(500, 500, 500) -- Tăng kích thước Hitbox lên 500m theo yêu cầu
+        ExpansionSize = Vector3.new(500, 500, 500), -- Kích thước Hitbox siêu lớn
+        FlyHeightOffset = 200 -- Độ cao bay cao hơn Titan 200 đơn vị
     }
     local Cfg = _G.Cfg
 
@@ -2197,7 +2197,7 @@ end
     local ORBIT_RADIUS = 14
     local ORBIT_SPEED = 1.6
     local ORBIT_BOB = 5
-    local HIT_COUNT = 20 -- Tăng số lượng mục tiêu chém đồng loạt trong phạm vi rộng
+    local HIT_COUNT = 20
     local DAMAGE_MULT = 10
     local OTHER_MULT = 10
     local PRIORITY = {}
@@ -2235,14 +2235,14 @@ end
         return hb and hb:FindFirstChild("Hit")
     end
 
-    -- Hàm xử lý mở rộng Hitbox Nape lên 500m
+    -- Hàm xử lý mở rộng Hitbox Nape để chém mượt mà từ trên cao xuống
     local function NapeOf(titan)
         local hit = HitParts(titan)
         local nape = hit and hit:FindFirstChild("Nape")
         if nape and nape:IsA("BasePart") then 
             if Cfg.HitboxExpander then
-                nape.Size = Cfg.ExpansionSize -- Đặt kích thước khổng lồ 500x500x500
-                nape.Transparency = 0.9 -- Làm mờ gần như trong suốt để không che khuất màn hình
+                nape.Size = Cfg.ExpansionSize
+                nape.Transparency = 0.9 
                 nape.CanCollide = false
             end
             return nape 
@@ -2339,7 +2339,7 @@ end
         return true
     end
 
-    -- Luồng tự động quét và chém toàn diện với phạm vi mở rộng
+    -- Luồng tự động quét, bay cao hơn Titan 200 đơn vị và chém tự động liên tục
     task.spawn(function()
         while true do
             if IsAlive() then
@@ -2348,7 +2348,7 @@ end
                 task.wait(gap)
                 
                 local target = B.Target
-                local root = MyRoot()
+                local root, char = MyRoot()
                 
                 if Cfg.AutoFarm and root then
                     if not target or not TitanAlive(target) then
@@ -2375,6 +2375,14 @@ end
                     if target and TitanAlive(target) then
                         local nape = NapeOf(target)
                         if nape then
+                            -- Tự động điều chỉnh vị trí nhân vật bay cao hơn đỉnh của Titan (hoặc Nape) 200 đơn vị
+                            local targetPos = nape.Position + Vector3.new(0, Cfg.FlyHeightOffset or 200, 0)
+                            local hrp = char:FindFirstChild("HumanoidRootPart")
+                            if hrp then
+                                -- Giữ khoảng cách bay ổn định phía trên
+                                hrp.CFrame = CFrame.new(targetPos) * CFrame.Angles(0, math.rad(tick() * 50 % 360), 0) * CFrame.new(0, 0, 10)
+                            end
+
                             local safeList = NapesAround(target)
                             if #safeList > 0 then
                                 Slash(safeList)
@@ -2387,5 +2395,18 @@ end
             end
         end
     end)
+
+    -- Cấu hình Slider độ cao offset so với Titan
+    if FarmTab and type(FarmTab.Slider) == "function" then
+        FarmTab:Slider({
+            Title = "Bay cao hơn Titan (Offset Height)",
+            Step = 10,
+            Value = { Min = 50, Max = 400, Default = Cfg.FlyHeightOffset or 200 },
+            Callback = function(v)
+                Cfg.FlyHeightOffset = tonumber(v) or 200
+                if typeof(Save) == "function" then Save() end
+            end
+        })
+    end
 
 Notify("Ryzen Hub - Loading successful", 5)
