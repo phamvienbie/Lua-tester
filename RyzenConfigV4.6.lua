@@ -54,7 +54,7 @@ local CFG = {
 	HideCoreGuiWhileLoading = true,
 
 	-- Island placement (right side of the screen)
-	CollapsedSize = Vector2.new(260, 42),
+	CollapsedSize = Vector2.new(290, 42),
 	ExpandedSize = Vector2.new(780, 372),
 	HeaderHeight = 42,
 	MarginRight = 16, -- pixels from the right edge
@@ -319,7 +319,7 @@ label(header, {
 	Name = "SeaHeader",
 	Text = seaText,
 	TextColor3 = THEME.Cyan,
-	TextSize = 13,
+	TextSize = 12,
 	Position = UDim2.fromOffset(32, 0),
 	Size = UDim2.fromOffset(90, CFG.HeaderHeight),
 })
@@ -390,7 +390,8 @@ local MAIN_Y = 26
 --// TITLE ROW
 label(panel, {
 	Text = string.upper(CFG.Name),
-	TextSize = 13,
+	Font = Enum.Font.Michroma,
+	TextSize = 12,
 	TextColor3 = THEME.Cyan,
 	Position = UDim2.fromOffset(4, 0),
 	Size = UDim2.new(0.7, 0, 0, 20),
@@ -762,7 +763,7 @@ local marqueeUnit = "     " .. CFG.MarqueeText .. "     •     " .. CFG.Name ..
 local okSize, marqueeBounds = pcall(function()
 	return TextService:GetTextSize(marqueeUnit, 12, Enum.Font.GothamBold, Vector2.new(10000, 24))
 end)
-local marqueeWidth = math.max(okSize and marqueeBounds.X or (#marqueeUnit * 7.5), 120)
+local marqueeWidth = math.max(okSize and marqueeBounds.X or (#marqueeUnit * 7.5), 120) + 40 -- +40 = safety gap
 local marqueeLabels = {}
 for i = 1, math.ceil(760 / marqueeWidth) + 1 do -- enough copies for a seamless loop
 	marqueeLabels[i] = label(marqueeStrip, {
@@ -1283,7 +1284,35 @@ local function runLoadingScreen(onFinished)
 	end
 	local ringA = makeRing(150, 4)
 	local ringB = makeRing(120, 2)
-	local ringC = makeRing(188, 1)
+	-- Mechanical gear ring (rotates slowly)
+	local gear = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(100, 100),
+		Size = UDim2.fromOffset(200, 200),
+		BackgroundTransparency = 1,
+	}, emblem)
+	local gearRing = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(168, 168),
+		BackgroundTransparency = 1,
+	}, gear)
+	corner(gearRing, 84)
+	stroke(gearRing, THEME.Cyan, 1.5, 0.45)
+	for i = 0, 19 do
+		local a = math.rad(i * 18)
+		local big = i % 5 == 0
+		local tooth = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(100 + math.cos(a) * 87, 100 + math.sin(a) * 87),
+			Size = UDim2.fromOffset(big and 12 or 7, big and 9 or 6),
+			Rotation = math.deg(a) + 90,
+			BackgroundColor3 = THEME.Cyan,
+			BackgroundTransparency = big and 0.1 or 0.45,
+			BorderSizePixel = 0,
+		}, gear)
+		corner(tooth, 1)
+	end
 
 	local core = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1295,14 +1324,64 @@ local function runLoadingScreen(onFinished)
 	corner(core, 48)
 	stroke(core, THEME.Cyan, 1, 0.5)
 	local coreScale = create("UIScale", { Scale = 1 }, core)
-	local letterR = label(core, {
-		Text = "R",
-		Font = Enum.Font.GothamBlack,
-		TextSize = 56,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Size = UDim2.fromScale(1, 1),
-	})
-	create("UIGradient", { Rotation = 90, Color = ColorSequence.new(WHITE, THEME.Cyan) }, letterR)
+	-- Mechanical cyber "R": neon-outlined armor strips + rivets (designed in a 64x80 box)
+	local rHolder = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(64, 80),
+		BackgroundTransparency = 1,
+	}, core)
+	create("UIScale", { Scale = 0.8 }, rHolder)
+
+	local rGradients = {}
+	local function strip(x1, y1, x2, y2, thickness)
+		local dx, dy = x2 - x1, y2 - y1
+		local len = math.sqrt(dx * dx + dy * dy)
+		local f = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset((x1 + x2) / 2, (y1 + y2) / 2),
+			Size = UDim2.fromOffset(len + thickness * 0.6, thickness),
+			Rotation = math.deg(math.atan2(dy, dx)),
+			BackgroundColor3 = THEME.Cyan,
+			BackgroundTransparency = 0.82,
+			BorderSizePixel = 0,
+		}, rHolder)
+		corner(f, 2)
+		local st = stroke(f, WHITE, 1.5, 0)
+		table.insert(rGradients, create("UIGradient", { Color = BORDER_COLORS, Transparency = BORDER_TRANSPARENCY }, st))
+		create("Frame", { -- circuit trace running through the strip
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.new(1, -8, 0, 1),
+			BackgroundColor3 = THEME.Cyan,
+			BackgroundTransparency = 0.3,
+			BorderSizePixel = 0,
+		}, f)
+	end
+	local function rivet(x, y)
+		local r = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(x, y),
+			Size = UDim2.fromOffset(7, 7),
+			BackgroundColor3 = WHITE,
+			BorderSizePixel = 0,
+		}, rHolder)
+		corner(r, 4)
+		stroke(r, THEME.Cyan, 1.5, 0.2)
+	end
+	local T = 9
+	strip(5, 4, 5, 76, T) -- stem
+	strip(5, 4, 40, 4, T) -- top bar
+	strip(40, 4, 56, 20, T) -- chamfer (top right)
+	strip(56, 20, 56, 34, T) -- bowl side
+	strip(56, 34, 42, 48, T) -- chamfer (bottom right)
+	strip(42, 48, 5, 48, T) -- middle bar
+	strip(26, 48, 58, 76, T) -- leg
+	rivet(5, 4)
+	rivet(56, 20)
+	rivet(42, 48)
+	rivet(58, 76)
+	rivet(5, 76)
 
 	local dots = {}
 	local function makeDot(size, color, radius, speed, phase)
@@ -1316,9 +1395,9 @@ local function runLoadingScreen(onFinished)
 		stroke(d, color, 3, 0.6)
 		table.insert(dots, { frame = d, radius = radius, speed = speed, phase = phase })
 	end
-	makeDot(7, THEME.Cyan, 94, 1.1, 0)
-	makeDot(5, WHITE, 94, 1.1, 2.1)
-	makeDot(6, THEME.Sky, 94, 1.1, 4.2)
+	makeDot(7, THEME.Cyan, 100, 1.1, 0)
+	makeDot(5, WHITE, 100, 1.1, 2.1)
+	makeDot(6, THEME.Sky, 100, 1.1, 4.2)
 	makeDot(5, THEME.Cyan, 60, -1.8, 1)
 	makeDot(4, WHITE, 60, -1.8, 4.1)
 
@@ -1334,33 +1413,31 @@ local function runLoadingScreen(onFinished)
 		FillDirection = Enum.FillDirection.Horizontal,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
-		Padding = UDim.new(0, 2),
+		Padding = UDim.new(0, 6),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, titleRow)
 
 	local letters, letterLive = {}, {}
 	for i = 1, #TITLE do
 		local ch = TITLE:sub(i, i)
-		local ok, bounds = pcall(function()
-			return TextService:GetTextSize(ch, 44, Enum.Font.GothamBlack, Vector2.new(1000, 100))
-		end)
-		local w = ch == " " and 18 or (ok and bounds.X or 30)
+		local isSpace = ch == " "
 		local holder = create("Frame", {
 			LayoutOrder = i,
-			Size = UDim2.fromOffset(w, 52),
+			Size = UDim2.fromOffset(isSpace and 22 or 0, 52),
+			AutomaticSize = isSpace and Enum.AutomaticSize.None or Enum.AutomaticSize.X,
 			BackgroundTransparency = 1,
 		}, titleRow)
 		letters[i] = label(holder, {
-			Text = ch,
-			Font = Enum.Font.GothamBlack,
-			TextSize = 44,
+			Text = isSpace and "" or ch,
+			Font = Enum.Font.Michroma,
+			TextSize = 34,
 			TextColor3 = THEME.Cyan,
 			TextStrokeColor3 = THEME.Cyan,
 			TextStrokeTransparency = 1,
 			TextTransparency = 1,
-			TextXAlignment = Enum.TextXAlignment.Center,
+			AutomaticSize = Enum.AutomaticSize.X,
+			Size = UDim2.fromOffset(0, 52),
 			Position = UDim2.fromOffset(0, 28),
-			Size = UDim2.fromScale(1, 1),
 		})
 	end
 
@@ -1388,7 +1465,7 @@ local function runLoadingScreen(onFinished)
 		TextSize = 12,
 		TextColor3 = THEME.Sky,
 		Position = UDim2.fromOffset(46, 38),
-		Size = UDim2.fromOffset(380, 18),
+		Size = UDim2.fromOffset(400, 18),
 	})
 	local percentLabel = label(lower, {
 		Text = "0",
@@ -1397,8 +1474,8 @@ local function runLoadingScreen(onFinished)
 		TextColor3 = THEME.Cyan,
 		RichText = true,
 		TextXAlignment = Enum.TextXAlignment.Right,
-		Position = UDim2.fromOffset(46, 28),
-		Size = UDim2.fromOffset(508, 30),
+		Position = UDim2.fromOffset(454, 24),
+		Size = UDim2.fromOffset(100, 34),
 	})
 
 	local SEGMENTS = 32
@@ -1529,7 +1606,15 @@ local function runLoadingScreen(onFinished)
 		-- emblem
 		ringA.Rotation = (t * 200) % 360
 		ringB.Rotation = (-t * 140) % 360
-		ringC.Rotation = (t * 60) % 360
+		gear.Rotation = (t * 18) % 360
+		for _, rg in ipairs(rGradients) do
+			rg.Rotation = (t * 160) % 360
+		end
+		if t % 3.6 < 0.14 then -- short cyber glitch on the R
+			rHolder.Position = UDim2.new(0.5, rng:NextInteger(-3, 3), 0.5, rng:NextInteger(-2, 2))
+		else
+			rHolder.Position = UDim2.fromScale(0.5, 0.5)
+		end
 		coreScale.Scale = 1 + 0.035 * math.sin(t * 2.2)
 		for i, g in ipairs(glowLayers) do
 			g.BackgroundTransparency = 0.975 - 0.012 * pulse - 0.001 * i
