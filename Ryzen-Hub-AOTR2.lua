@@ -57,7 +57,7 @@ local function Alive()
     return _G.SmoothHubReplayToken == token
 end
 
---// Bảng cấu hình mặc định (Gộp chung và đồng bộ với _G.Cfg)
+--// Bảng cấu hình mặc định
 local Cfg = {
     Slot = 1,
     AutoSelect = false,
@@ -92,9 +92,10 @@ local Cfg = {
     SafeFarm = false,
     DamageMultiplier = true,
     HitboxExpander = true,
-    ExpansionSize = 500,
+    ExpansionSize = 16, -- Kích thước tối ưu: Không bị kẹt rìa hitbox và nhận 100% sát thương ở gần
     StartDelay = 4,
-    FlyHeight = 200,
+    FlyHeight = 70,     -- Độ cao chuẩn để Server luôn tính sát thương khi áp sát
+    AttackDistance = 18, -- Khoảng cách áp sát gáy Titan khi chém
     FlySpeed = 600,
     AttackSpeed = 2,
     NoClip = true,
@@ -170,7 +171,6 @@ local Cfg = {
     AutoLeaveAtWave = false,
     LeaveAtWave = 10,
 }
-_G.Cfg = Cfg
 
 --// Quản lý lưu trữ tệp cấu hình
 local SAVE_DIR = "SmoothHub_WindUI"
@@ -187,6 +187,13 @@ local function LoadConfig()
                     if Cfg[k] ~= nil and type(Cfg[k]) == type(v) then
                         Cfg[k] = v
                     end
+                end
+                -- Tự động hạ ExpansionSize và FlyHeight cũ nếu bị lưu giá trị quá lớn từ bản lỗi trước
+                if type(Cfg.ExpansionSize) == "number" and Cfg.ExpansionSize > 45 then
+                    Cfg.ExpansionSize = 16
+                end
+                if type(Cfg.FlyHeight) == "number" and Cfg.FlyHeight > 120 then
+                    Cfg.FlyHeight = 70
                 end
             end
         end
@@ -209,6 +216,7 @@ local function Save()
 end
 
 LoadConfig()
+_G.Cfg = Cfg
 
 --// Tải thư viện WindUI
 local okWind, WindUI = pcall(function()
@@ -570,7 +578,7 @@ local FarmStatusPara = FarmTab:Paragraph({
 
 FarmTab:Toggle({
     Title = "Kích hoạt Auto Farm",
-    Desc = "Bật/Tắt luồng farm chính (Vừa bay vừa chém)",
+    Desc = "Bật/Tắt luồng farm chính (Áp sát & Chém nhận sát thương ngay)",
     Value = Cfg.FarmEnabled,
     Callback = function(v)
         Cfg.FarmEnabled = v
@@ -589,11 +597,21 @@ FarmTab:Dropdown({
 })
 
 FarmTab:Toggle({
-    Title = "Mở rộng Hitbox Nape (Hitbox Expander)",
-    Desc = "Phóng to gáy Titan giúp chém trúng từ khoảng cách xa trên không",
+    Title = "Mở rộng Hitbox Nape chuẩn (Hitbox Expander)",
+    Desc = "Mở rộng vừa đủ để không bị lỗi kẹt rìa Hitbox và luôn tính sát thương",
     Value = Cfg.HitboxExpander,
     Callback = function(v)
         Cfg.HitboxExpander = v
+        Save()
+    end
+})
+
+FarmTab:Slider({
+    Title = "Kích thước Hitbox Nape",
+    Step = 2,
+    Value = { Min = 8, Max = 40, Default = Cfg.ExpansionSize or 16 },
+    Callback = function(v)
+        Cfg.ExpansionSize = tonumber(v) or 16
         Save()
     end
 })
@@ -639,11 +657,21 @@ FarmTab:Slider({
 })
 
 FarmTab:Slider({
-    Title = "Độ cao bay so với Titan (Fly Height)",
-    Step = 10,
-    Value = { Min = 50, Max = 500, Default = Cfg.FlyHeight or 200 },
+    Title = "Độ cao bay hành trình (Fly Height)",
+    Step = 5,
+    Value = { Min = 20, Max = 150, Default = Cfg.FlyHeight or 70 },
     Callback = function(v)
-        Cfg.FlyHeight = tonumber(v) or 200
+        Cfg.FlyHeight = tonumber(v) or 70
+        Save()
+    end
+})
+
+FarmTab:Slider({
+    Title = "Khoảng cách áp sát khi chém (Attack Distance)",
+    Step = 2,
+    Value = { Min = 8, Max = 40, Default = Cfg.AttackDistance or 18 },
+    Callback = function(v)
+        Cfg.AttackDistance = tonumber(v) or 18
         Save()
     end
 })
@@ -770,23 +798,23 @@ FarmTab:Slider({
     end
 })
 
---// Logic thực thi Auto Farm thống nhất (Đã xoá luồng trùng lặp)
+--// Logic thực thi Auto Farm chuẩn xác (Áp sát gáy Titan & Nhận sát thương ngay lập tức)
 do
-    local ATTACK_GAP = { [0] = 0.35, [1] = 0.6, [2] = 0.22, [3] = 0.15, [4] = 0.1, [5] = 0.06 }
+    local ATTACK_GAP = { [0] = 0.35, [1] = 0.5, [2] = 0.2, [3] = 0.14, [4] = 0.09, [5] = 0.06 }
     local OTHER_PARTS = { "Eyes", "LeftArm", "RightArm", "LeftLeg", "RightLeg" }
-    local ARRIVE_DIST = 25
-    local ORBIT_RADIUS = 14
-    local ORBIT_SPEED = 1.6
-    local ORBIT_BOB = 5
-    local HIT_COUNT = 20
+    local ORBIT_RADIUS = 10
+    local ORBIT_SPEED = 2.2
+    local ORBIT_BOB = 2
+    local HIT_COUNT = 12
     local DAMAGE_MULT = 10
     local REMOTE_BUDGET = 300
     local NET_BATCH = 20
     local NET_QUEUE_MAX = 600
+    local SERVER_HIT_RANGE = 125 -- Tầm tối đa mà Server cho phép tính sát thương kiếm trên mỗi Titan
 
     local budgetStart, budgetUsed = os.clock(), 0
     local netQ, netHead, netTail = {}, 1, 0
-    local PRIORITY = {}
+    local origNapeSize = setmetatable({}, { __mode = "k" })
 
     local function NetPending()
         return netTail - netHead + 1
@@ -846,14 +874,23 @@ do
         local hit = HitParts(titan)
         local nape = hit and hit:FindFirstChild("Nape")
         if nape and nape:IsA("BasePart") then
-            if Cfg.HitboxExpander then
-                local sz = tonumber(Cfg.ExpansionSize) or 500
-                pcall(function()
-                    nape.Size = Vector3.new(sz, sz, sz)
-                    nape.Transparency = 0.9
-                    nape.CanCollide = false
-                end)
+            if not origNapeSize[nape] then
+                -- Nếu lỡ bị phóng to 500x500x500 từ bản chạy trước thì lưu kích thước gốc là 6, 4, 4
+                origNapeSize[nape] = (nape.Size.X > 50) and Vector3.new(6, 4, 4) or nape.Size
             end
+            pcall(function()
+                if Cfg.HitboxExpander then
+                    local sz = math.clamp(tonumber(Cfg.ExpansionSize) or 16, 6, 45)
+                    nape.Size = Vector3.new(sz, sz, sz)
+                    nape.Transparency = 0.85
+                    nape.CanCollide = false
+                    nape.Massless = true
+                else
+                    nape.Size = origNapeSize[nape]
+                    nape.Transparency = 1
+                    nape.CanCollide = false
+                end
+            end)
             return nape
         end
         return nil
@@ -934,37 +971,45 @@ do
         return out
     end
 
-    local function NapesAround(main, spear)
+    local function NapesAround(main, spear, rootPos)
         local mainNape = NapeOf(main)
         if not mainNape then return {} end
         local cap = spear and 200 or HIT_COUNT
+        local maxRange = spear and (Cfg.ThunderRange or 10000) or SERVER_HIT_RANGE
+        local refPos = rootPos or mainNape.Position
+
         local folder = workspace:FindFirstChild("Titans")
         local boss, bossNape = nil, nil
         if folder then
             local c = folder:FindFirstChild("Colossal_Titan")
             if c and c:IsA("Model") and TitanAlive(c) then
                 bossNape = NapeOf(c)
-                if bossNape then boss = c end
+                if bossNape and (bossNape.Position - refPos).Magnitude <= maxRange then
+                    boss = c
+                end
             end
         end
+
         local others = {}
         for _, t in ipairs(folder and folder:GetChildren() or {}) do
             if t ~= main and t ~= boss and t:IsA("Model") and TitanAlive(t) then
                 local n = NapeOf(t)
                 if n then
-                    others[#others + 1] = { part = n, d = (n.Position - mainNape.Position).Magnitude }
+                    local d = (n.Position - refPos).Magnitude
+                    if d <= maxRange then
+                        others[#others + 1] = { part = n, d = d }
+                    end
                 end
             end
         end
         table.sort(others, function(a, b) return a.d < b.d end)
+
         local list = {}
-        if boss then
-            PRIORITY = { [bossNape] = true }
-            list[1] = bossNape
-            if main ~= boss then list[#list + 1] = mainNape end
-        else
-            PRIORITY = { [mainNape] = true }
-            list[1] = mainNape
+        if boss and bossNape then
+            list[#list + 1] = bossNape
+        end
+        if main ~= boss and (spear or (mainNape.Position - refPos).Magnitude <= maxRange) then
+            list[#list + 1] = mainNape
         end
         for i = 1, math.min(cap - #list, #others) do
             list[#list + 1] = others[i].part
@@ -976,6 +1021,7 @@ do
         local remote = GetPostRemote()
         if not remote or NetPending() > NET_QUEUE_MAX then return false end
         if typeof(parts) == "Instance" then parts = { parts } end
+        if #parts == 0 then return false end
         local reps = Reps(#parts)
         NetPush(remote, "Attacks", "Slash", true)
         for _ = 1, reps do
@@ -1035,7 +1081,7 @@ do
     local orbitAngle = 0
     local lastPick = 0
 
-    -- Luồng di chuyển nhân vật (Heartbeat)
+    -- Luồng di chuyển nhân vật: Khi ở xa thì bay ở độ cao an toàn, khi tới gần Titan sẽ hạ độ cao áp sát vùng gáy để Server tính 100% sát thương
     RunService.Heartbeat:Connect(function(dt)
         if not Alive() then return end
         orbitAngle = (orbitAngle + ORBIT_SPEED * dt) % (math.pi * 2)
@@ -1068,7 +1114,7 @@ do
         end
 
         if not Farm.Blades.Target or not TitanAlive(Farm.Blades.Target) then
-            if os.clock() - lastPick > 0.25 then
+            if os.clock() - lastPick > 0.2 then
                 lastPick = os.clock()
                 Farm.Blades.Target = PickTitan(root)
             end
@@ -1076,21 +1122,26 @@ do
 
         local nape = Farm.Blades.Target and NapeOf(Farm.Blades.Target)
         if nape then
+            local horizontalDist = (Vector3.new(nape.Position.X, 0, nape.Position.Z) - Vector3.new(root.Position.X, 0, root.Position.Z)).Magnitude
+            local attackHeight = Cfg.AutoFarmThunder and (Cfg.FlyHeight or 70) or (Cfg.AttackDistance or 18)
+            local heightOffset = (horizontalDist <= 45) and attackHeight or math.max(Cfg.FlyHeight or 70, attackHeight)
+
             local offset = Vector3.new(
                 math.cos(orbitAngle) * ORBIT_RADIUS,
-                math.max(Cfg.FlyHeight or 200, 50) + math.sin(orbitAngle * 2) * ORBIT_BOB,
-                math.sin(orbitAngle * 2) * ORBIT_RADIUS
+                heightOffset + math.sin(orbitAngle * 2) * ORBIT_BOB,
+                math.sin(orbitAngle) * ORBIT_RADIUS
             )
             local goal = nape.Position + offset
             local diff = goal - root.Position
             local dist = diff.Magnitude
             pcall(function() root.AssemblyLinearVelocity = Vector3.zero end)
-            if dist > 1 then
+            if dist > 0.5 then
                 local step = math.min((Cfg.FlySpeed or 600) * dt, dist)
                 local newPos = root.Position + diff.Unit * step
-                root.CFrame = CFrame.new(newPos) * CFrame.Angles(0, orbitAngle, 0)
+                root.CFrame = CFrame.lookAt(newPos, nape.Position)
             end
-            Farm.Blades.Status = (dist <= ARRIVE_DIST) and "Attacking" or "Flying & Attacking"
+            local realDistToNape = (nape.Position - root.Position).Magnitude
+            Farm.Blades.Status = (realDistToNape <= SERVER_HIT_RANGE) and "Attacking (In Range)" or "Flying to titan"
         else
             Farm.Blades.Target = nil
             Farm.Blades.Status = "Searching for titans"
@@ -1098,11 +1149,11 @@ do
         end
     end)
 
-    -- Luồng tấn công (Vừa bay vừa chém không bị ngắt quãng)
+    -- Luồng tấn công: Chém ngay lập tức khi nhân vật vào tầm nhận sát thương của Titan
     task.spawn(function()
         local partLast = setmetatable({}, { __mode = "k" })
         while Alive() do
-            local gap = ATTACK_GAP[Cfg.AttackSpeed or 2] or 0.22
+            local gap = ATTACK_GAP[Cfg.AttackSpeed or 2] or 0.2
             task.wait(gap)
             if Running() and os.clock() >= readyAt then
                 local root = MyRoot()
@@ -1112,15 +1163,17 @@ do
                     Farm.Blades.Target = target
                 end
                 if root and target and TitanAlive(target) then
+                    local nape = NapeOf(target)
+                    local distToNape = nape and (nape.Position - root.Position).Magnitude or math.huge
+
                     if Cfg.AutoFarmThunder then
-                        local safeList = SafeFilter(NapesAround(target, true))
+                        local safeList = SafeFilter(NapesAround(target, true, root.Position))
                         if #safeList > 0 then
                             FireSpear(safeList)
                         end
-                    else
-                        -- Mặc định chém bằng kiếm (kể cả khi đang bay)
+                    elseif distToNape <= SERVER_HIT_RANGE then
                         if not (Farm.BladesBusy and Farm.BladesBusy()) then
-                            local safeList = SafeFilter(NapesAround(target, false))
+                            local safeList = SafeFilter(NapesAround(target, false, root.Position))
                             if #safeList > 0 then
                                 Slash(safeList)
                                 if Cfg.HitAllParts and SafeLeft() <= 0 then
@@ -1211,8 +1264,7 @@ do
     local emptyStart = nil
 
     function Farm.BladesBusy()
-        -- Chỉ tạm dừng chém tối đa 1.5s khi đang thực sự bấm AutoReload
-        return Cfg.AutoReload and emptyStart ~= nil and (os.clock() - emptyStart < 1.5)
+        return Cfg.AutoReload and emptyStart ~= nil and (os.clock() - emptyStart < 1.2)
     end
 
     task.spawn(function()
