@@ -607,15 +607,15 @@ FarmTab:Slider({
     end
 })
 
-FarmTab:Slider({
-    Title = "Độ cao bay (Fly Height)",
-    Step = 5,
-    Value = { Min = 70, Max = 500, Default = Cfg.FlyHeight },
-    Callback = function(v)
-        Cfg.FlyHeight = tonumber(v) or 230
-        Save()
-    end
-})
+    FarmTab:Slider({
+        Title = "Độ cao bay (Fly Height)",
+        Step = 5,
+        Value = { Min = 70, Max = 500, Default = 70 },
+        Callback = function(v)
+            Cfg.FlyHeight = tonumber(v) or 70
+            Save()
+        end
+    })
 
 FarmTab:Slider({
     Title = "Tốc độ bay (Fly Speed)",
