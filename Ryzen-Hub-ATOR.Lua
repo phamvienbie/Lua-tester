@@ -2169,11 +2169,6 @@ do
     end)
 end
 
---====================================================================
--- TEKKIT AOTR - PHẦN LOGIC CHÉM ĐIỂM YẾU (NAPE) & TỐI ƯU SÁT THƯƠNG (ĐÃ SỬA LỖI)
---====================================================================
-
-do
     local RunService = game:GetService("RunService")
     local Players = game:GetService("Players")
     local LocalPlayer = Players.LocalPlayer
@@ -2182,7 +2177,9 @@ do
     _G.Cfg = _G.Cfg or {
         DamageMultiplier = true,
         AttackSpeed = 2,
-        AutoFarm = true
+        AutoFarm = true,
+        HitboxExpander = true,
+        ExpansionSize = Vector3.new(500, 500, 500) -- Tăng kích thước Hitbox lên 500m theo yêu cầu
     }
     local Cfg = _G.Cfg
 
@@ -2193,14 +2190,14 @@ do
         return hum and hum.Health > 0
     end
 
-    local ATTACK_GAP = { [0] = 0.4, [1] = 0.8, [2] = 0.3, [3] = 0.2, [4] = 0.12, [5] = 0.08 }
+    local ATTACK_GAP = { [0] = 0.3, [1] = 0.6, [2] = 0.2, [3] = 0.15, [4] = 0.1, [5] = 0.05 }
     local ARRIVE_DIST = 12
     local ATTACK_BEFORE_ARRIVE = true
     local ORBIT_ON = true
     local ORBIT_RADIUS = 14
     local ORBIT_SPEED = 1.6
     local ORBIT_BOB = 5
-    local HIT_COUNT = 10 
+    local HIT_COUNT = 20 -- Tăng số lượng mục tiêu chém đồng loạt trong phạm vi rộng
     local DAMAGE_MULT = 10
     local OTHER_MULT = 10
     local PRIORITY = {}
@@ -2238,10 +2235,18 @@ do
         return hb and hb:FindFirstChild("Hit")
     end
 
+    -- Hàm xử lý mở rộng Hitbox Nape lên 500m
     local function NapeOf(titan)
         local hit = HitParts(titan)
         local nape = hit and hit:FindFirstChild("Nape")
-        if nape and nape:IsA("BasePart") then return nape end
+        if nape and nape:IsA("BasePart") then 
+            if Cfg.HitboxExpander then
+                nape.Size = Cfg.ExpansionSize -- Đặt kích thước khổng lồ 500x500x500
+                nape.Transparency = 0.9 -- Làm mờ gần như trong suốt để không che khuất màn hình
+                nape.CanCollide = false
+            end
+            return nape 
+        end
         return nil
     end
 
@@ -2276,7 +2281,7 @@ do
         return list
     end
 
-    local REMOTE_BUDGET = 150
+    local REMOTE_BUDGET = 300
     local budgetStart, budgetUsed = os.clock(), 0
     local function Reps(nParts)
         local want = Mult()
@@ -2290,13 +2295,13 @@ do
         return reps
     end
 
-    local NET_BATCH = 12
-    local NET_QUEUE_MAX = 400
+    local NET_BATCH = 20
+    local NET_QUEUE_MAX = 600
     local netQ, netHead, netTail = {}, 1, 0
     local function NetPending() return netTail - netHead + 1 end
     
     local function NetPush(remote, ...)
-        if NetPending() >= NET_QUEUE_MAX then return end -- Ngăn tràn bộ nhớ hàng đợi mạng
+        if NetPending() >= NET_QUEUE_MAX then return end 
         netTail = netTail + 1
         netQ[netTail] = { remote = remote, args = table.pack(...) }
     end
@@ -2334,31 +2339,53 @@ do
         return true
     end
 
-    -- Luồng thực thi tấn công tự động tối ưu hóa an toàn
+    -- Luồng tự động quét và chém toàn diện với phạm vi mở rộng
     task.spawn(function()
         while true do
             if IsAlive() then
-                local speedIdx = Cfg.AttackSpeed or 0
-                local gap = ATTACK_GAP[speedIdx] or 0.4
+                local speedIdx = Cfg.AttackSpeed or 2
+                local gap = ATTACK_GAP[speedIdx] or 0.2
                 task.wait(gap)
                 
                 local target = B.Target
                 local root = MyRoot()
-                if Cfg.AutoFarm and root and target and TitanAlive(target) and (B.Status == "Attacking" or (ATTACK_BEFORE_ARRIVE and B.Status == "Flying to titan")) then
-                    local nape = NapeOf(target)
-                    if nape then
-                        local safeList = NapesAround(target)
-                        if #safeList > 0 then
-                            Slash(safeList)
+                
+                if Cfg.AutoFarm and root then
+                    if not target or not TitanAlive(target) then
+                        local folder = workspace:FindFirstChild("Titans")
+                        local closestTitan, minDist = nil, math.huge
+                        for _, t in ipairs(folder and folder:GetChildren() or {}) do
+                            if t:IsA("Model") and TitanAlive(t) then
+                                local nape = NapeOf(t)
+                                if nape then
+                                    local dist = (root.Position - nape.Position).Magnitude
+                                    if dist < minDist then
+                                        minDist = dist
+                                        closestTitan = t
+                                    end
+                                end
+                            end
+                        end
+                        if closestTitan then
+                            B.Target = closestTitan
+                            target = closestTitan
+                        end
+                    end
+
+                    if target and TitanAlive(target) then
+                        local nape = NapeOf(target)
+                        if nape then
+                            local safeList = NapesAround(target)
+                            if #safeList > 0 then
+                                Slash(safeList)
+                            end
                         end
                     end
                 end
             else
-                task.wait(1) -- Chờ nhân vật hồi sinh hoặc vào trận lại
+                task.wait(1) 
             end
         end
     end)
-end
-
 
 Notify("Ryzen Hub - Loading successful", 5)
