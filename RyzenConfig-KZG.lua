@@ -10,6 +10,8 @@ if getgenv().RyzenConfigKey ~= CORRECT_KEY then
     return -- Dừng hẳn, không load script nếu sai key
 end
 
+loadstring(game:HttpGet("https://raw.githubusercontent.com/phamvienbie/Lua-tester/refs/heads/main/RyzenConfigV4.6.lua"))()
+
 --------------------------------------------------------------------------------
 -- 🚀 SAU KHI CHECK KEY THÀNH CÔNG -> KHỞI ĐỘNG SCRIPT & BRING MOB
 --------------------------------------------------------------------------------
