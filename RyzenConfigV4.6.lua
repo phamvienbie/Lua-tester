@@ -3,7 +3,7 @@
 	Place in: StarterPlayer > StarterPlayerScripts (or StarterGui)
 
 	Features
-	- Full-screen animated loading screen (rings, particles, progress bar)
+	- Cinematic full-screen loading screen (aurora, orbiting emblem, letter reveal, segmented bar, shutter exit)
 	- Dynamic Island pill on the RIGHT side of the screen -> tap to expand a wide (landscape) panel
 	- Profile (display name, username, ID, avatar) + Sea 1 / 2 / 3 detection by PlaceId
 	- Player stats: Level, Beli, Fragments (Blox Fruits: player.Data.*)
@@ -1043,8 +1043,10 @@ local function notify(title, text, duration)
 	end)
 end
 
---// FULL-SCREEN LOADING SCREEN
+--// FULL-SCREEN LOADING SCREEN (cinematic: aurora, orbiting emblem, letter reveal, segmented bar, shutter exit)
 local function runLoadingScreen(onFinished)
+	local WHITE = Color3.new(1, 1, 1)
+
 	local loadGui = create("ScreenGui", {
 		Name = "RyzenConfigLoading",
 		ResetOnSpawn = false,
@@ -1070,69 +1072,95 @@ local function runLoadingScreen(onFinished)
 			StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
 		end)
 	end
-	local function restoreCore()
+	loadGui.Destroying:Connect(function()
 		for t, enabled in pairs(savedCore) do
 			pcall(function()
 				StarterGui:SetCoreGuiEnabled(t, enabled)
 			end)
 		end
-	end
-	loadGui.Destroying:Connect(restoreCore)
+	end)
 
-	-- Root (fades out at the end)
-	local root = create("CanvasGroup", {
+	----------------------------------------------------------------
+	-- SHUTTER PANELS (solid background, split open at the end)
+	----------------------------------------------------------------
+	local function shutterPanel(position, colorA, colorB)
+		local f = create("Frame", {
+			Position = position,
+			Size = UDim2.fromScale(1, 0.5),
+			BackgroundColor3 = WHITE,
+			BorderSizePixel = 0,
+		}, loadGui)
+		create("UIGradient", { Rotation = 90, Color = ColorSequence.new(colorA, colorB) }, f)
+		return f
+	end
+	local panelTop = shutterPanel(UDim2.fromScale(0, 0), Color3.fromRGB(2, 4, 8), Color3.fromRGB(5, 13, 22))
+	local panelBottom = shutterPanel(UDim2.fromScale(0, 0.5), Color3.fromRGB(5, 13, 22), Color3.fromRGB(7, 28, 44))
+
+	local function edgeLight(parent, anchorY) -- glowing seam on the inner edge of each panel
+		local e = create("Frame", {
+			AnchorPoint = Vector2.new(0, anchorY),
+			Position = UDim2.fromScale(0, anchorY),
+			Size = UDim2.new(1, 0, 0, 2),
+			BackgroundColor3 = THEME.Cyan,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+		}, parent)
+		create("UIGradient", {
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.5, 0),
+				NumberSequenceKeypoint.new(1, 1),
+			}),
+		}, e)
+		return e
+	end
+	local edgeTop = edgeLight(panelTop, 1)
+	local edgeBottom = edgeLight(panelBottom, 0)
+
+	----------------------------------------------------------------
+	-- CONTENT LAYER (fades out before the shutter opens)
+	----------------------------------------------------------------
+	local content = create("CanvasGroup", {
 		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.fromRGB(3, 5, 9),
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 	}, loadGui)
 
-	local bg = create("Frame", {
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.new(1, 1, 1),
-		BorderSizePixel = 0,
-	}, root)
-	create("UIGradient", {
-		Rotation = 90,
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(2, 4, 8)),
-			ColorSequenceKeypoint.new(0.55, Color3.fromRGB(4, 10, 18)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(6, 26, 40)),
-		}),
-	}, bg)
+	-- Aurora orbs: soft glows built from stacked translucent circles
+	local function makeOrb(color, diameter)
+		local orb = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromOffset(diameter, diameter),
+			BackgroundTransparency = 1,
+		}, content)
+		for i = 1, 10 do
+			local d = i / 10
+			local layer = create("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.fromScale(d, d),
+				BackgroundColor3 = color,
+				BackgroundTransparency = 0.975,
+				BorderSizePixel = 0,
+			}, orb)
+			corner(layer, 1000)
+		end
+		return orb
+	end
+	local orbs = {
+		{ frame = makeOrb(THEME.Cyan, 760), ax = 0.28, ay = 0.22, sx = 0.21, sy = 0.17, px = 0, py = 1.3 },
+		{ frame = makeOrb(Color3.fromRGB(70, 130, 255), 640), ax = 0.32, ay = 0.26, sx = 0.15, sy = 0.23, px = 2.1, py = 0.4 },
+		{ frame = makeOrb(THEME.Sky, 560), ax = 0.25, ay = 0.3, sx = 0.19, sy = 0.13, px = 4.2, py = 2.6 },
+	}
 
-	-- Content layer (zooms slightly while exiting)
-	local content = create("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
-	}, root)
-	local contentScale = create("UIScale", { Scale = 1 }, content)
-
-	-- Scan line sweeping down the screen
-	local scanLine = create("Frame", {
-		Size = UDim2.new(1, 0, 0, 2),
-		BackgroundColor3 = THEME.Cyan,
-		BackgroundTransparency = 0.8,
-		BorderSizePixel = 0,
-	}, content)
-	create("UIGradient", {
-		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(0.5, 0),
-			NumberSequenceKeypoint.new(1, 1),
-		}),
-	}, scanLine)
-
-	-- Floating particles
+	-- Twinkling particles drifting upwards
 	local rng = Random.new()
 	local particles = {}
-	for i = 1, 44 do
+	for i = 1, 46 do
 		local size = rng:NextInteger(2, 4)
 		local f = create("Frame", {
 			Size = UDim2.fromOffset(size, size),
 			BackgroundColor3 = (i % 2 == 0) and THEME.Cyan or THEME.Sky,
-			BackgroundTransparency = rng:NextNumber(0.3, 0.85),
 			BorderSizePixel = 0,
 		}, content)
 		corner(f, 2)
@@ -1143,186 +1171,469 @@ local function runLoadingScreen(onFinished)
 			speed = rng:NextNumber(0.02, 0.07),
 			phase = rng:NextNumber(0, 6.28),
 			sway = rng:NextNumber(0.004, 0.02),
+			base = rng:NextNumber(0.35, 0.8),
 		}
 	end
 
-	-- Ripple rings expanding from the logo
-	local ripples = {}
-	for i = 1, 3 do
-		local f = create("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromOffset(128, 128),
-			BackgroundTransparency = 1,
-		}, content)
-		corner(f, 1000)
-		ripples[i] = { frame = f, stroke = stroke(f, THEME.Cyan, 2, 1) }
+	-- HUD corner brackets + readouts
+	local hudBrackets, hudTexts = {}, {}
+	local function bracket(ax, ay)
+		local mx = ax == 1 and -24 or 24
+		local my = ay == 1 and -24 or 24
+		for _, sz in ipairs({ Vector2.new(44, 2), Vector2.new(2, 44) }) do
+			table.insert(hudBrackets, create("Frame", {
+				AnchorPoint = Vector2.new(ax, ay),
+				Position = UDim2.new(ax, mx, ay, my),
+				Size = UDim2.fromOffset(sz.X, sz.Y),
+				BackgroundColor3 = THEME.Cyan,
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+			}, content))
+		end
 	end
+	bracket(0, 0)
+	bracket(1, 0)
+	bracket(0, 1)
+	bracket(1, 1)
 
-	-- Center stack (logo, title, progress)
-	local stack = create("CanvasGroup", {
+	local function hudText(text, ax, ay)
+		local l = label(content, {
+			Text = text,
+			Font = Enum.Font.Code,
+			TextSize = 11,
+			TextColor3 = THEME.Sky,
+			TextTransparency = 1,
+			TextXAlignment = ax == 1 and Enum.TextXAlignment.Right or Enum.TextXAlignment.Left,
+			AnchorPoint = Vector2.new(ax, ay),
+			Position = UDim2.new(ax, ax == 1 and -76 or 76, ay, ay == 1 and -17 or 17),
+			Size = UDim2.fromOffset(280, 14),
+		})
+		table.insert(hudTexts, l)
+		return l
+	end
+	hudText("SYSTEM BOOT  //  RYZEN", 0, 0)
+	hudText("WORLD: " .. seaText, 1, 0)
+	hudText("BUILD V4.6  //  BY " .. string.upper(CFG.Credit), 0, 1)
+	local fpsHud = hudText("FPS 60", 1, 1)
+
+	-- Opening line (grows from the center of the screen)
+	local lineWidth = math.min(camera.ViewportSize.X * 0.8, 720)
+	local introLine = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(420, 380),
-		BackgroundTransparency = 1,
-		GroupTransparency = 1,
+		Size = UDim2.fromOffset(0, 2),
+		BackgroundColor3 = THEME.Cyan,
+		BorderSizePixel = 0,
 	}, content)
-	local baseScale = math.clamp(camera.ViewportSize.Y / 720, 0.55, 1.3)
-	local stackScale = create("UIScale", { Scale = baseScale * 0.85 }, stack)
+	create("UIGradient", {
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.5, 0),
+			NumberSequenceKeypoint.new(1, 1),
+		}),
+	}, introLine)
 
-	-- Spinner ring + letter
-	local spinner = create("Frame", {
+	----------------------------------------------------------------
+	-- CENTER STACK (emblem, title, progress)
+	----------------------------------------------------------------
+	local stack = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromOffset(210, 90),
-		Size = UDim2.fromOffset(128, 128),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(600, 400),
+		BackgroundTransparency = 1,
+	}, content)
+	local baseScale = math.clamp(camera.ViewportSize.Y / 760, 0.55, 1.3)
+	baseScale = math.min(baseScale, (camera.ViewportSize.X - 20) / 600)
+	local stackScale = create("UIScale", { Scale = baseScale }, stack)
+
+	-- Emblem
+	local emblem = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(300, 105),
+		Size = UDim2.fromOffset(200, 200),
 		BackgroundTransparency = 1,
 	}, stack)
-	corner(spinner, 64)
-	local spinnerStroke = stroke(spinner, Color3.new(1, 1, 1), 4, 0)
-	local spinnerGradient = create("UIGradient", { Color = BORDER_COLORS, Transparency = BORDER_TRANSPARENCY }, spinnerStroke)
+	local emblemScale = create("UIScale", { Scale = 0 }, emblem)
 
-	local inner = create("Frame", {
+	local glowLayers = {}
+	for i = 1, 8 do
+		local d = 100 + i * 16
+		local c = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(100, 100),
+			Size = UDim2.fromOffset(d, d),
+			BackgroundColor3 = THEME.Cyan,
+			BackgroundTransparency = 0.97,
+			BorderSizePixel = 0,
+		}, emblem)
+		corner(c, d / 2)
+		glowLayers[i] = c
+	end
+
+	local function makeRing(diameter, thickness)
+		local f = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(100, 100),
+			Size = UDim2.fromOffset(diameter, diameter),
+			BackgroundTransparency = 1,
+		}, emblem)
+		corner(f, diameter / 2)
+		local s = stroke(f, WHITE, thickness, 0)
+		return create("UIGradient", { Color = BORDER_COLORS, Transparency = BORDER_TRANSPARENCY }, s)
+	end
+	local ringA = makeRing(150, 4)
+	local ringB = makeRing(120, 2)
+	local ringC = makeRing(188, 1)
+
+	local core = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(104, 104),
-		BackgroundColor3 = Color3.fromRGB(6, 12, 18),
+		Position = UDim2.fromOffset(100, 100),
+		Size = UDim2.fromOffset(96, 96),
+		BackgroundColor3 = Color3.fromRGB(5, 10, 16),
 		BorderSizePixel = 0,
-	}, spinner)
-	corner(inner, 52)
-	stroke(inner, THEME.Cyan, 1, 0.6)
-	local letter = label(inner, {
+	}, emblem)
+	corner(core, 48)
+	stroke(core, THEME.Cyan, 1, 0.5)
+	local coreScale = create("UIScale", { Scale = 1 }, core)
+	local letterR = label(core, {
 		Text = "R",
 		Font = Enum.Font.GothamBlack,
-		TextSize = 58,
+		TextSize = 56,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Size = UDim2.fromScale(1, 1),
 	})
-	create("UIGradient", {
-		Rotation = 90,
-		Color = ColorSequence.new(THEME.White, THEME.Cyan),
-	}, letter)
+	create("UIGradient", { Rotation = 90, Color = ColorSequence.new(WHITE, THEME.Cyan) }, letterR)
 
-	-- Title with moving shine
-	local title = label(stack, {
-		Text = "RYZEN CONFIG",
-		Font = Enum.Font.GothamBlack,
-		TextSize = 40,
-		TextXAlignment = Enum.TextXAlignment.Center,
+	local dots = {}
+	local function makeDot(size, color, radius, speed, phase)
+		local d = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromOffset(size, size),
+			BackgroundColor3 = color,
+			BorderSizePixel = 0,
+		}, emblem)
+		corner(d, size / 2)
+		stroke(d, color, 3, 0.6)
+		table.insert(dots, { frame = d, radius = radius, speed = speed, phase = phase })
+	end
+	makeDot(7, THEME.Cyan, 94, 1.1, 0)
+	makeDot(5, WHITE, 94, 1.1, 2.1)
+	makeDot(6, THEME.Sky, 94, 1.1, 4.2)
+	makeDot(5, THEME.Cyan, 60, -1.8, 1)
+	makeDot(4, WHITE, 60, -1.8, 4.1)
+
+	-- Title (letter by letter)
+	local TITLE = "RYZEN CONFIG"
+	local titleRow = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 176),
-		Size = UDim2.fromOffset(420, 50),
-	})
-	local titleGradient = create("UIGradient", {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, THEME.Cyan),
-			ColorSequenceKeypoint.new(0.5, Color3.new(1, 1, 1)),
-			ColorSequenceKeypoint.new(1, THEME.Sky),
-		}),
-	}, title)
+		Position = UDim2.fromOffset(300, 222),
+		Size = UDim2.fromOffset(600, 52),
+		BackgroundTransparency = 1,
+	}, stack)
+	create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 2),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, titleRow)
 
-	label(stack, {
-		Text = "V4.6   •   by " .. CFG.Credit,
+	local letters, letterLive = {}, {}
+	for i = 1, #TITLE do
+		local ch = TITLE:sub(i, i)
+		local ok, bounds = pcall(function()
+			return TextService:GetTextSize(ch, 44, Enum.Font.GothamBlack, Vector2.new(1000, 100))
+		end)
+		local w = ch == " " and 18 or (ok and bounds.X or 30)
+		local holder = create("Frame", {
+			LayoutOrder = i,
+			Size = UDim2.fromOffset(w, 52),
+			BackgroundTransparency = 1,
+		}, titleRow)
+		letters[i] = label(holder, {
+			Text = ch,
+			Font = Enum.Font.GothamBlack,
+			TextSize = 44,
+			TextColor3 = THEME.Cyan,
+			TextStrokeColor3 = THEME.Cyan,
+			TextStrokeTransparency = 1,
+			TextTransparency = 1,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Position = UDim2.fromOffset(0, 28),
+			Size = UDim2.fromScale(1, 1),
+		})
+	end
+
+	-- Lower group: subtitle, status, percent, segmented bar, tips
+	local lower = create("CanvasGroup", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromOffset(300, 276),
+		Size = UDim2.fromOffset(600, 112),
+		BackgroundTransparency = 1,
+		GroupTransparency = 1,
+	}, stack)
+
+	label(lower, {
+		Text = "V4.6   •   BY " .. string.upper(CFG.Credit),
 		Font = Enum.Font.GothamMedium,
-		TextSize = 14,
+		TextSize = 13,
 		TextColor3 = THEME.Muted,
 		TextXAlignment = Enum.TextXAlignment.Center,
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 228),
-		Size = UDim2.fromOffset(420, 20),
+		Size = UDim2.fromOffset(600, 18),
 	})
 
-	-- Progress bar
-	local track = create("Frame", {
-		Position = UDim2.fromOffset(40, 282),
-		Size = UDim2.fromOffset(340, 6),
-		BackgroundColor3 = Color3.fromRGB(15, 22, 31),
-		BorderSizePixel = 0,
-	}, stack)
-	corner(track, 3)
-	stroke(track, THEME.Cyan, 1, 0.75)
-
-	local fill = create("Frame", {
-		Size = UDim2.fromScale(0, 1),
-		BackgroundColor3 = Color3.new(1, 1, 1),
-		BorderSizePixel = 0,
-	}, track)
-	corner(fill, 3)
-	create("UIGradient", {
-		Color = ColorSequence.new(THEME.Cyan, THEME.Sky),
-	}, fill)
-	local head = create("Frame", { -- glowing tip of the bar
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(1, 0.5),
-		Size = UDim2.fromOffset(10, 10),
-		BackgroundColor3 = Color3.new(1, 1, 1),
-		BorderSizePixel = 0,
-	}, fill)
-	corner(head, 5)
-	stroke(head, THEME.Cyan, 3, 0.5)
-
-	local statusLabel = label(stack, {
+	local statusLabel = label(lower, {
 		Text = "",
 		Font = Enum.Font.GothamMedium,
 		TextSize = 12,
 		TextColor3 = THEME.Sky,
-		Position = UDim2.fromOffset(40, 298),
-		Size = UDim2.fromOffset(260, 18),
+		Position = UDim2.fromOffset(46, 38),
+		Size = UDim2.fromOffset(380, 18),
 	})
-	local percentLabel = label(stack, {
-		Text = "0%",
-		TextSize = 12,
+	local percentLabel = label(lower, {
+		Text = "0",
+		Font = Enum.Font.GothamBlack,
+		TextSize = 26,
 		TextColor3 = THEME.Cyan,
+		RichText = true,
 		TextXAlignment = Enum.TextXAlignment.Right,
-		Position = UDim2.fromOffset(300, 298),
-		Size = UDim2.fromOffset(80, 18),
+		Position = UDim2.fromOffset(46, 28),
+		Size = UDim2.fromOffset(508, 30),
 	})
 
-	-- Per-frame animation
+	local SEGMENTS = 32
+	local barHolder = create("Frame", {
+		Position = UDim2.fromOffset(46, 66),
+		Size = UDim2.fromOffset(508, 8),
+		BackgroundTransparency = 1,
+	}, lower)
+	local segments = {}
+	for j = 1, SEGMENTS do
+		local seg = create("Frame", {
+			Position = UDim2.fromOffset((j - 1) * 16, 0),
+			Size = UDim2.fromOffset(12, 8),
+			BackgroundColor3 = Color3.fromRGB(22, 32, 44),
+			BorderSizePixel = 0,
+		}, barHolder)
+		corner(seg, 2)
+		segments[j] = seg
+	end
+
+	local tipLabel = label(lower, {
+		Text = "",
+		Font = Enum.Font.GothamMedium,
+		TextSize = 11,
+		TextColor3 = THEME.Muted,
+		TextTransparency = 1,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(0, 90),
+		Size = UDim2.fromOffset(600, 16),
+	})
+
+	local progressValue = create("NumberValue", { Value = 0 }, loadGui)
+
+	----------------------------------------------------------------
+	-- HELPERS
+	----------------------------------------------------------------
+	local running = true
+
+	local function burst(color, diameter) -- ripple ring expanding from the emblem
+		local s = stackScale.Scale
+		local r = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, 0, 0.5, -95 * s),
+			Size = UDim2.fromOffset(120 * s, 120 * s),
+			BackgroundTransparency = 1,
+		}, loadGui)
+		corner(r, 1000)
+		local st = stroke(r, color, 3, 0.15)
+		local d = diameter * s
+		local tw = TweenService:Create(r, TweenInfo.new(1.1, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+			Size = UDim2.fromOffset(d, d),
+		})
+		TweenService:Create(st, TweenInfo.new(1.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Transparency = 1,
+			Thickness = 0.5,
+		}):Play()
+		tw:Play()
+		tw.Completed:Connect(function()
+			r:Destroy()
+		end)
+	end
+
+	local statusToken = 0
+	local function setStatus(text) -- typewriter effect
+		statusToken += 1
+		local token = statusToken
+		statusLabel.Text = text
+		statusLabel.MaxVisibleGraphemes = 0
+		task.spawn(function()
+			for i = 1, #text do
+				if statusToken ~= token then
+					return
+				end
+				statusLabel.MaxVisibleGraphemes = i
+				task.wait(0.018)
+			end
+			statusLabel.MaxVisibleGraphemes = -1
+		end)
+	end
+
+	local tips = {
+		"Tap the island on the right to open the dashboard",
+		"Live FPS and Ping monitoring",
+		"Track your Level, Beli and Fragments",
+		"Switch time zones with one tap",
+	}
+	task.spawn(function()
+		local i = 1
+		while running do
+			tipLabel.Text = tips[i]
+			TweenService:Create(tipLabel, TweenInfo.new(0.35), { TextTransparency = 0.1 }):Play()
+			task.wait(1.6)
+			if not running then
+				break
+			end
+			TweenService:Create(tipLabel, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
+			task.wait(0.34)
+			i = i % #tips + 1
+		end
+	end)
+
+	----------------------------------------------------------------
+	-- PER-FRAME ANIMATION
+	----------------------------------------------------------------
 	local startClock = os.clock()
+	local fpsSmooth, fpsTimer = 60, 0
+	local titleWaveOn = false
+
 	local loaderConn = RunService.RenderStepped:Connect(function(dt)
 		local t = os.clock() - startClock
-		spinnerGradient.Rotation = (t * 220) % 360
-		titleGradient.Offset = Vector2.new(math.sin(t * 1.6) * 0.5, 0)
-		scanLine.Position = UDim2.fromScale(0, (t * 0.18) % 1)
+		local pulse = (math.sin(t * 2.2) + 1) / 2
 
+		-- aurora orbs drift
+		for _, o in ipairs(orbs) do
+			o.frame.Position = UDim2.fromScale(
+				0.5 + o.ax * math.sin(t * o.sx + o.px),
+				0.5 + o.ay * math.cos(t * o.sy + o.py)
+			)
+		end
+
+		-- particles
 		for _, p in ipairs(particles) do
 			p.y = (p.y - p.speed * dt) % 1
 			p.frame.Position = UDim2.fromScale(p.x + math.sin(t * 0.8 + p.phase) * p.sway, p.y)
+			p.frame.BackgroundTransparency = math.clamp(p.base + 0.25 * math.sin(t * 2 + p.phase), 0.1, 0.95)
 		end
 
-		local s = stackScale.Scale
-		for i, r in ipairs(ripples) do
-			local p = (t * 0.4 + (i - 1) / #ripples) % 1
-			local size = (128 + p * 640) * s
-			r.frame.Size = UDim2.fromOffset(size, size)
-			r.frame.Position = UDim2.new(0.5, 0, 0.5, -100 * s)
-			r.stroke.Transparency = 0.25 + 0.75 * p
+		-- emblem
+		ringA.Rotation = (t * 200) % 360
+		ringB.Rotation = (-t * 140) % 360
+		ringC.Rotation = (t * 60) % 360
+		coreScale.Scale = 1 + 0.035 * math.sin(t * 2.2)
+		for i, g in ipairs(glowLayers) do
+			g.BackgroundTransparency = 0.975 - 0.012 * pulse - 0.001 * i
+		end
+		for _, d in ipairs(dots) do
+			local a = d.phase + t * d.speed
+			d.frame.Position = UDim2.fromOffset(100 + math.cos(a) * d.radius, 100 + math.sin(a) * d.radius)
 		end
 
-		percentLabel.Text = string.format("%d%%", math.floor(fill.Size.X.Scale * 100 + 0.5))
+		-- title: brightness wave travelling through the letters
+		if titleWaveOn then
+			for i, l in ipairs(letters) do
+				if letterLive[i] then
+					local k = (math.sin(t * 3.2 - i * 0.5) + 1) / 2
+					l.TextColor3 = THEME.Cyan:Lerp(WHITE, k * 0.85)
+					l.TextStrokeTransparency = 0.92 - 0.25 * k
+				end
+			end
+		end
+
+		-- HUD brackets breathe
+		local bt = 0.55 - 0.25 * pulse
+		for _, b in ipairs(hudBrackets) do
+			if b.BackgroundTransparency < 0.95 then
+				b.BackgroundTransparency = bt
+			end
+		end
+
+		-- segmented progress bar
+		local p = progressValue.Value
+		local lit = math.floor(p * SEGMENTS + 0.0001)
+		for j = 1, SEGMENTS do
+			local seg = segments[j]
+			if j <= lit then
+				local k = math.max(0, math.sin(t * 6 - j * 0.45))
+				seg.BackgroundColor3 = THEME.Cyan:Lerp(THEME.Sky, j / SEGMENTS):Lerp(WHITE, k * 0.55)
+				seg.BackgroundTransparency = 0
+			elseif j == lit + 1 and p < 1 then
+				seg.BackgroundColor3 = THEME.Cyan
+				seg.BackgroundTransparency = 0.3 + 0.45 * ((math.sin(t * 10) + 1) / 2)
+			else
+				seg.BackgroundColor3 = Color3.fromRGB(22, 32, 44)
+				seg.BackgroundTransparency = 0
+			end
+		end
+		percentLabel.Text = string.format(
+			'%d<font size="14" color="%s">%%</font>',
+			math.floor(p * 100 + 0.5), rgbTag(THEME.Muted)
+		)
+
+		-- FPS readout
+		fpsSmooth += (1 / math.max(dt, 1e-4) - fpsSmooth) * 0.1
+		fpsTimer += dt
+		if fpsTimer > 0.25 then
+			fpsTimer = 0
+			fpsHud.Text = string.format("FPS %d", math.floor(fpsSmooth + 0.5))
+		end
 	end)
 
-	-- Intro: logo stack pops in
-	TweenService:Create(stack, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		GroupTransparency = 0,
+	----------------------------------------------------------------
+	-- INTRO
+	----------------------------------------------------------------
+	TweenService:Create(introLine, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+		Size = UDim2.fromOffset(lineWidth, 2),
 	}):Play()
-	TweenService:Create(stackScale, TweenInfo.new(0.9, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Scale = baseScale,
-	}):Play()
-	task.wait(0.6)
+	for _, b in ipairs(hudBrackets) do
+		TweenService:Create(b, TweenInfo.new(0.6), { BackgroundTransparency = 0.4 }):Play()
+	end
+	for _, l in ipairs(hudTexts) do
+		TweenService:Create(l, TweenInfo.new(0.8), { TextTransparency = 0.35 }):Play()
+	end
+	task.wait(0.5)
 
-	-- Loading stages (the first two also wait for real data to be ready)
+	TweenService:Create(emblemScale, TweenInfo.new(0.9, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	TweenService:Create(introLine, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+	burst(THEME.Cyan, 780)
+	task.wait(0.4)
+
+	titleWaveOn = true
+	for i, l in ipairs(letters) do
+		task.delay((i - 1) * 0.05, function()
+			letterLive[i] = true
+			TweenService:Create(l, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+				Position = UDim2.fromOffset(0, 0),
+				TextTransparency = 0,
+			}):Play()
+		end)
+	end
+	task.wait(0.65)
+	TweenService:Create(lower, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { GroupTransparency = 0 }):Play()
+	task.wait(0.35)
+
+	----------------------------------------------------------------
+	-- LOADING STAGES (the first two also wait for real data)
+	----------------------------------------------------------------
 	local stages = {
-		{ 0.15, "Initializing modules...", 0.55 },
-		{ 0.38, "Loading player profile...", 0.65 },
-		{ 0.60, "Detecting sea & server...", 0.65 },
-		{ 0.82, "Syncing network & performance...", 0.65 },
+		{ 0.16, "Initializing modules...", 0.6 },
+		{ 0.40, "Loading player profile...", 0.7 },
+		{ 0.62, "Detecting sea & server...", 0.7 },
+		{ 0.84, "Syncing network & performance...", 0.7 },
 		{ 1.00, "Ready!", 0.55 },
 	}
 	for i, stage in ipairs(stages) do
-		statusLabel.Text = stage[2]
-		statusLabel.TextTransparency = 1
-		TweenService:Create(statusLabel, TweenInfo.new(0.25), { TextTransparency = 0 }):Play()
+		setStatus(stage[2])
 
 		if i == 1 then
 			local t0 = os.clock()
@@ -1333,21 +1644,35 @@ local function runLoadingScreen(onFinished)
 			player:WaitForChild("Data", 8) -- Blox Fruits stats folder
 		end
 
-		local tween = TweenService:Create(fill, TweenInfo.new(stage[3], Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
-			Size = UDim2.fromScale(stage[1], 1),
+		local tween = TweenService:Create(progressValue, TweenInfo.new(stage[3], Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
+			Value = stage[1],
 		})
 		tween:Play()
 		tween.Completed:Wait()
-		task.wait(0.12)
+		if i < #stages then
+			burst(THEME.Sky, 440)
+		end
+		task.wait(0.1)
 	end
+	statusLabel.TextColor3 = THEME.Cyan
 
-	-- Exit: fade + zoom
-	task.wait(0.35)
-	local exitInfo = TweenInfo.new(0.9, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-	TweenService:Create(root, exitInfo, { GroupTransparency = 1 }):Play()
-	TweenService:Create(contentScale, exitInfo, { Scale = 1.35 }):Play()
-	task.delay(0.55, onFinished)
-	task.wait(0.9)
+	----------------------------------------------------------------
+	-- EXIT: flash -> content fades -> shutter opens along the center line
+	----------------------------------------------------------------
+	task.wait(0.4)
+	burst(WHITE, 1500)
+	TweenService:Create(emblemScale, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 1.25 }):Play()
+	TweenService:Create(content, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { GroupTransparency = 1 }):Play()
+	TweenService:Create(edgeTop, TweenInfo.new(0.4), { BackgroundTransparency = 0 }):Play()
+	TweenService:Create(edgeBottom, TweenInfo.new(0.4), { BackgroundTransparency = 0 }):Play()
+	task.wait(0.55)
+	running = false
+
+	local openInfo = TweenInfo.new(0.95, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut)
+	TweenService:Create(panelTop, openInfo, { Position = UDim2.fromScale(0, -0.5) }):Play()
+	TweenService:Create(panelBottom, openInfo, { Position = UDim2.fromScale(0, 1) }):Play()
+	task.delay(0.3, onFinished)
+	task.wait(1.0)
 
 	loaderConn:Disconnect()
 	loadGui:Destroy()
