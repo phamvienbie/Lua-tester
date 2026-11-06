@@ -610,7 +610,7 @@ FarmTab:Slider({
 FarmTab:Slider({
     Title = "Độ cao bay (Fly Height)",
     Step = 5,
-    Value = { Min = 150, Max = 500, Default = Cfg.FlyHeight },
+    Value = { Min = 70, Max = 500, Default = Cfg.FlyHeight },
     Callback = function(v)
         Cfg.FlyHeight = tonumber(v) or 230
         Save()
@@ -2168,8 +2168,9 @@ do
         end
     end)
 end
+
 --====================================================================
--- TEKKIT AOTR - PHẠM VI 750, AUTO KILL & TỰ ĐỘNG M1
+-- TEKKIT AOTR - PHẦN LOGIC CHÉM ĐIỂM YẾU (NAPE) & TỐI ƯU SÁT THƯƠNG (ĐÃ SỬA LỖI)
 --====================================================================
 
 do
@@ -2177,35 +2178,41 @@ do
     local Players = game:GetService("Players")
     local LocalPlayer = Players.LocalPlayer
 
-    -- Đảm bảo Cfg và cấu hình tồn tại
+    -- Đảm bảo Cfg và các cấu hình mặc định tồn tại để tránh lỗi nil value
     _G.Cfg = _G.Cfg or {
         DamageMultiplier = true,
-        AttackSpeed = 5, -- Đẩy tốc độ chém lên mức nhanh nhất
+        AttackSpeed = 2,
         AutoFarm = true
     }
     local Cfg = _G.Cfg
 
-    -- Khởi tạo bảng Farm an toàn
-    _G.Farm = _G.Farm or {}
-    _G.Farm.Blades = _G.Farm.Blades or { Target = nil, Hits = 0, Status = "Idle" }
-    local B = _G.Farm.Blades
-
+    -- Hàm kiểm tra trạng thái sống an toàn
     local function IsAlive()
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         return hum and hum.Health > 0
     end
 
-    local ATTACK_GAP = { [0] = 0.2, [1] = 0.15, [2] = 0.1, [3] = 0.05, [4] = 0.03, [5] = 0.01 }
-    local MAX_RANGE = 750 -- Tăng phạm vi tìm kiếm lên 750 studs theo yêu cầu
-    local HIT_COUNT = 15  -- Gom số lượng Titan chém cùng lúc nhiều hơn để tối ưu kill hàng loạt
-    local DAMAGE_MULT = 50 -- Tăng cường hệ số sát thương để kết liễu tức thì (Instant Kill)
-    local OTHER_MULT = 50
+    local ATTACK_GAP = { [0] = 0.4, [1] = 0.8, [2] = 0.3, [3] = 0.2, [4] = 0.12, [5] = 0.08 }
+    local ARRIVE_DIST = 12
+    local ATTACK_BEFORE_ARRIVE = true
+    local ORBIT_ON = true
+    local ORBIT_RADIUS = 14
+    local ORBIT_SPEED = 1.6
+    local ORBIT_BOB = 5
+    local HIT_COUNT = 10 
+    local DAMAGE_MULT = 10
+    local OTHER_MULT = 10
     local PRIORITY = {}
 
     local MultState = { full = DAMAGE_MULT, other = OTHER_MULT }
     local function Mult() return Cfg.DamageMultiplier and MultState.full or 1 end
     local function OtherMult() return Cfg.DamageMultiplier and math.min(MultState.other, MultState.full) or 1 end
+
+    -- Khởi tạo bảng Farm và trạng thái an toàn
+    _G.Farm = _G.Farm or {}
+    _G.Farm.Blades = _G.Farm.Blades or { Target = nil, Hits = 0, Status = "Idle" }
+    local B = _G.Farm.Blades
 
     local post = nil
     local function Post()
@@ -2243,45 +2250,18 @@ do
         return hum ~= nil and hum.Health > 0
     end
 
-    -- Tìm Titan trong phạm vi lên tới 750 studs
-    local function GetClosestTitanInRange()
-        local folder = workspace:FindFirstChild("Titans")
-        local root = MyRoot()
-        if not folder or not root then return nil end
-
-        local closest, minDist = nil, MAX_RANGE
-        for _, t in ipairs(folder:GetChildren()) do
-            if t:IsA("Model") and TitanAlive(t) then
-                local nape = NapeOf(t)
-                if nape then
-                    local dist = (nape.Position - root.Position).Magnitude
-                    if dist <= minDist then
-                        minDist = dist
-                        closest = t
-                    end
-                end
-            end
-        end
-        return closest
-    end
-
-    -- Gom tất cả các gáy trong phạm vi 750 studs để tiêu diệt hàng loạt
     local function NapesAround(main)
         local mainNape = NapeOf(main)
         if not mainNape then return {} end
         local cap = HIT_COUNT
         local folder = workspace:FindFirstChild("Titans")
-        local root = MyRoot()
 
         local others = {}
         for _, t in ipairs(folder and folder:GetChildren() or {}) do
-            if t:IsA("Model") and TitanAlive(t) then
+            if t ~= main and t:IsA("Model") and TitanAlive(t) then
                 local n = NapeOf(t)
-                if n and root then
-                    local distToPlayer = (n.Position - root.Position).Magnitude
-                    if distToPlayer <= MAX_RANGE then
-                        others[#others + 1] = { part = n, d = (n.Position - mainNape.Position).Magnitude }
-                    end
+                if n then
+                    others[#others + 1] = { part = n, d = (n.Position - mainNape.Position).Magnitude }
                 end
             end
         end
@@ -2296,7 +2276,7 @@ do
         return list
     end
 
-    local REMOTE_BUDGET = 300
+    local REMOTE_BUDGET = 150
     local budgetStart, budgetUsed = os.clock(), 0
     local function Reps(nParts)
         local want = Mult()
@@ -2310,13 +2290,13 @@ do
         return reps
     end
 
-    local NET_BATCH = 20
-    local NET_QUEUE_MAX = 600
+    local NET_BATCH = 12
+    local NET_QUEUE_MAX = 400
     local netQ, netHead, netTail = {}, 1, 0
     local function NetPending() return netTail - netHead + 1 end
     
     local function NetPush(remote, ...)
-        if NetPending() >= NET_QUEUE_MAX then return end
+        if NetPending() >= NET_QUEUE_MAX then return end -- Ngăn tràn bộ nhớ hàng đợi mạng
         netTail = netTail + 1
         netQ[netTail] = { remote = remote, args = table.pack(...) }
     end
@@ -2335,73 +2315,50 @@ do
         if netHead > netTail then netHead, netTail = 1, 0 end
     end)
 
-    -- Hàm xử lý chém kết hợp giả lập hành động M1 liên tục
     local function Slash(parts)
         local remote = Post()
         if not remote then return false end
         if typeof(parts) == "Instance" then parts = { parts } end
         if NetPending() > NET_QUEUE_MAX then return false end
-        
         local reps = Reps(#parts)
-        
-        -- Kích hoạt tín hiệu M1 / Bắt đầu đòn tấn công (Slash Start)
         NetPush(remote, "Attacks", "Slash", true)
-        NetPush(remote, "M1") -- Giả lập gửi lệnh M1 trực tiếp tới server
-        
         for r = 1, reps do
             for _, part in ipairs(parts) do
                 if PRIORITY[part] or r <= OtherMult() then
-                    -- Đăng ký Hitbox với lượng damage lớn để tự động chết ngay lập tức (Instant Kill)
-                    NetPush(remote, "Hitboxes", "Register", part, 9999 + math.random() * 500, 0.1 + math.random() * 0.1)
+                    NetPush(remote, "Hitboxes", "Register", part, 143 + math.random() * 10, 0.26 + math.random() * 0.25)
                 end
             end
         end
-        
-        -- Kết thúc đòn tấn công (Slash End)
         NetPush(remote, "Attacks", "Slash", false)
         B.Hits = B.Hits + #parts
         return true
     end
 
-    -- Luồng tự động quét trong bán kính 750 studs, tự động kill và liên tục M1
+    -- Luồng thực thi tấn công tự động tối ưu hóa an toàn
     task.spawn(function()
         while true do
             if IsAlive() then
-                local speedIdx = Cfg.AttackSpeed or 5
-                local gap = ATTACK_GAP[speedIdx] or 0.05
+                local speedIdx = Cfg.AttackSpeed or 0
+                local gap = ATTACK_GAP[speedIdx] or 0.4
                 task.wait(gap)
                 
-                -- Tự động tìm Titan gần nhất trong phạm vi 750 studs
-                if not TitanAlive(B.Target) then
-                    B.Target = GetClosestTitanInRange()
-                else
-                    local root = MyRoot()
-                    local nape = NapeOf(B.Target)
-                    if root and nape then
-                        local dist = (nape.Position - root.Position).Magnitude
-                        if dist > MAX_RANGE then
-                            B.Target = GetClosestTitanInRange() -- Đổi mục tiêu nếu mục tiêu cũ chạy ra ngoài 750 studs
-                        end
-                    end
-                end
-
                 local target = B.Target
                 local root = MyRoot()
-                
-                if root and target and TitanAlive(target) then
+                if Cfg.AutoFarm and root and target and TitanAlive(target) and (B.Status == "Attacking" or (ATTACK_BEFORE_ARRIVE and B.Status == "Flying to titan")) then
                     local nape = NapeOf(target)
                     if nape then
                         local safeList = NapesAround(target)
                         if #safeList > 0 then
-                            Slash(safeList) -- Tự động gọi M1 và Instant Kill gáy Titan
+                            Slash(safeList)
                         end
                     end
                 end
             else
-                task.wait(1)
+                task.wait(1) -- Chờ nhân vật hồi sinh hoặc vào trận lại
             end
         end
     end)
 end
+
 
 Notify("Ryzen Hub - Loading successful", 5)
