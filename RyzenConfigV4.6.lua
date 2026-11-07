@@ -3,7 +3,8 @@
 	Place in: StarterPlayer > StarterPlayerScripts (or StarterGui)
 
 	Features
-	- Cinematic full-screen loading screen (aurora, orbiting emblem, letter reveal, segmented bar, shutter exit)
+	- Loading effect inside the main UI (CPU chip, circuit traces, electric arcs, code rain, boot terminal)
+	- The UI is OPEN by default (CFG.StartOpen)
 	- Dynamic Island pill on the RIGHT side of the screen -> tap to expand a wide (landscape) panel
 	- Profile (display name, username, ID, avatar) + Sea 1 / 2 / 3 detection by PlaceId
 	- Player stats: Level, Beli, Fragments (Blox Fruits: player.Data.*)
@@ -50,8 +51,8 @@ local CFG = {
 	MarqueeSpeed = 55, -- pixels per second
 	NotifyDuration = 4, -- seconds the load toast stays visible
 
-	LoadingScreen = true, -- full-screen loading effect
-	HideCoreGuiWhileLoading = true,
+	LoadingScreen = true, -- loading effect shown INSIDE the main UI (not full-screen)
+	StartOpen = true, -- the UI starts expanded (open) and stays open after loading
 
 	-- Island placement (right side of the screen)
 	CollapsedSize = Vector2.new(290, 42),
@@ -979,10 +980,21 @@ end
 --// LOAD NOTIFICATION (Dynamic Island style toast, slides out under the pill)
 local function notify(title, text, duration)
 	local width = math.min(320, camera.ViewportSize.X - 20)
+	local vpSize = camera.ViewportSize
+	local half = (expanded and CFG.ExpandedSize.Y or CFG.CollapsedSize.Y) / 2 * uiScale.Scale
+	local centerY = vpSize.Y * CFG.PositionY
+	local anchor, position
+	if centerY + half + 12 + 52 <= vpSize.Y then -- room below the island
+		anchor, position = Vector2.new(1, 0), UDim2.new(1, -CFG.MarginRight, CFG.PositionY, half + 12)
+	elseif centerY - half - 12 - 52 >= 0 then -- room above
+		anchor, position = Vector2.new(1, 1), UDim2.new(1, -CFG.MarginRight, CFG.PositionY, -(half + 12))
+	else -- small screens: top center
+		anchor, position = Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 12)
+	end
 	local toast = create("CanvasGroup", {
 		Name = "Notify",
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -CFG.MarginRight, CFG.PositionY, CFG.CollapsedSize.Y / 2 + 12),
+		AnchorPoint = anchor,
+		Position = position,
 		Size = UDim2.fromOffset(40, 10),
 		GroupTransparency = 1,
 		BackgroundColor3 = THEME.Background,
@@ -1044,217 +1056,299 @@ local function notify(title, text, duration)
 	end)
 end
 
---// FULL-SCREEN LOADING SCREEN (cinematic: aurora, orbiting emblem, letter reveal, segmented bar, shutter exit)
-local function runLoadingScreen(onFinished)
+--// INLINE LOADING (shown INSIDE the main UI, no full-screen cover)
+-- Electromagnetic / computer-tech theme: CPU chip with mechanical R, circuit traces with data pulses,
+-- electric arcs, EM field rings, orbiting electrons, code rain, boot terminal, segmented progress bar.
+local function runInlineLoading(onFinished)
 	local WHITE = Color3.new(1, 1, 1)
+	local rng = Random.new()
+	local startClock = os.clock()
+	local W, H = CFG.ExpandedSize.X, CFG.ExpandedSize.Y
+	local CX, CY = 190, 186 -- chip center inside the overlay
 
-	local loadGui = create("ScreenGui", {
-		Name = "RyzenConfigLoading",
-		ResetOnSpawn = false,
-		IgnoreGuiInset = true,
-		DisplayOrder = 1000,
-		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-	}, playerGui)
-
-	-- Hide Roblox core UI (topbar, chat...) while loading, restore afterwards
-	local savedCore = {}
-	if CFG.HideCoreGuiWhileLoading then
-		for _, t in ipairs(Enum.CoreGuiType:GetEnumItems()) do
-			if t ~= Enum.CoreGuiType.All then
-				local ok, enabled = pcall(function()
-					return StarterGui:GetCoreGuiEnabled(t)
-				end)
-				if ok then
-					savedCore[t] = enabled
-				end
-			end
-		end
-		pcall(function()
-			StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
-		end)
+	local function V(x, y)
+		return Vector2.new(x, y)
 	end
-	loadGui.Destroying:Connect(function()
-		for t, enabled in pairs(savedCore) do
-			pcall(function()
-				StarterGui:SetCoreGuiEnabled(t, enabled)
-			end)
-		end
-	end)
 
-	----------------------------------------------------------------
-	-- SHUTTER PANELS (solid background, split open at the end)
-	----------------------------------------------------------------
-	local function shutterPanel(position, colorA, colorB)
-		local f = create("Frame", {
-			Position = position,
-			Size = UDim2.fromScale(1, 0.5),
-			BackgroundColor3 = WHITE,
-			BorderSizePixel = 0,
-		}, loadGui)
-		create("UIGradient", { Rotation = 90, Color = ColorSequence.new(colorA, colorB) }, f)
-		return f
-	end
-	local panelTop = shutterPanel(UDim2.fromScale(0, 0), Color3.fromRGB(2, 4, 8), Color3.fromRGB(5, 13, 22))
-	local panelBottom = shutterPanel(UDim2.fromScale(0, 0.5), Color3.fromRGB(5, 13, 22), Color3.fromRGB(7, 28, 44))
+	-- Overlay covering the island body (blocks clicks while loading)
+	local overlay = create("CanvasGroup", {
+		Name = "Loading",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0,
+		GroupTransparency = 1,
+		Active = true,
+		ZIndex = 50,
+	}, body)
+	corner(overlay, 30)
+	create("UIGradient", {
+		Rotation = 90,
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(2, 4, 8)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 18, 28)),
+		}),
+	}, overlay)
 
-	local function edgeLight(parent, anchorY) -- glowing seam on the inner edge of each panel
-		local e = create("Frame", {
-			AnchorPoint = Vector2.new(0, anchorY),
-			Position = UDim2.fromScale(0, anchorY),
-			Size = UDim2.new(1, 0, 0, 2),
-			BackgroundColor3 = THEME.Cyan,
-			BackgroundTransparency = 1,
+	-- Shared helpers ------------------------------------------------
+	local function newSegment(parent, thickness, color, transparency)
+		return create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromOffset(0, thickness),
+			BackgroundColor3 = color,
+			BackgroundTransparency = transparency,
 			BorderSizePixel = 0,
 		}, parent)
+	end
+	local function placeSegment(f, x1, y1, x2, y2)
+		local dx, dy = x2 - x1, y2 - y1
+		f.Position = UDim2.fromOffset((x1 + x2) / 2, (y1 + y2) / 2)
+		f.Size = UDim2.fromOffset(math.sqrt(dx * dx + dy * dy), f.Size.Y.Offset)
+		f.Rotation = math.deg(math.atan2(dy, dx))
+	end
+
+	----------------------------------------------------------------
+	-- CODE RAIN (left half only, so it never sits behind the text)
+	----------------------------------------------------------------
+	local RAIN_CHARS = { "0", "1", "0", "1", "A", "B", "C", "D", "E", "F", "7", "3", "9", "<", ">", "/", "{", "}", "=", "+", "#" }
+	local function randomColumn()
+		local parts = table.create(16)
+		for k = 1, 16 do
+			parts[k] = RAIN_CHARS[rng:NextInteger(1, #RAIN_CHARS)]
+		end
+		return table.concat(parts, "\n")
+	end
+	local rain = {}
+	for i = 1, 12 do
+		local l = label(overlay, {
+			Text = randomColumn(),
+			Font = Enum.Font.Code,
+			TextSize = 13,
+			TextColor3 = (i % 4 == 0) and WHITE or THEME.Cyan,
+			TextTransparency = 0.6,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.fromOffset(16 + (i - 1) * 31, -240),
+			Size = UDim2.fromOffset(18, 240),
+		})
 		create("UIGradient", {
+			Rotation = 90,
 			Transparency = NumberSequence.new({
 				NumberSequenceKeypoint.new(0, 1),
-				NumberSequenceKeypoint.new(0.5, 0),
-				NumberSequenceKeypoint.new(1, 1),
+				NumberSequenceKeypoint.new(0.7, 0.6),
+				NumberSequenceKeypoint.new(1, 0.1),
 			}),
-		}, e)
-		return e
-	end
-	local edgeTop = edgeLight(panelTop, 1)
-	local edgeBottom = edgeLight(panelBottom, 0)
-
-	----------------------------------------------------------------
-	-- CONTENT LAYER (fades out before the shutter opens)
-	----------------------------------------------------------------
-	local content = create("CanvasGroup", {
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-	}, loadGui)
-
-	-- Aurora orbs: soft glows built from stacked translucent circles
-	local function makeOrb(color, diameter)
-		local orb = create("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.fromOffset(diameter, diameter),
-			BackgroundTransparency = 1,
-		}, content)
-		for i = 1, 10 do
-			local d = i / 10
-			local layer = create("Frame", {
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.fromScale(d, d),
-				BackgroundColor3 = color,
-				BackgroundTransparency = 0.975,
-				BorderSizePixel = 0,
-			}, orb)
-			corner(layer, 1000)
-		end
-		return orb
-	end
-	local orbs = {
-		{ frame = makeOrb(THEME.Cyan, 760), ax = 0.28, ay = 0.22, sx = 0.21, sy = 0.17, px = 0, py = 1.3 },
-		{ frame = makeOrb(Color3.fromRGB(70, 130, 255), 640), ax = 0.32, ay = 0.26, sx = 0.15, sy = 0.23, px = 2.1, py = 0.4 },
-		{ frame = makeOrb(THEME.Sky, 560), ax = 0.25, ay = 0.3, sx = 0.19, sy = 0.13, px = 4.2, py = 2.6 },
-	}
-
-	-- Twinkling particles drifting upwards
-	local rng = Random.new()
-	local particles = {}
-	for i = 1, 46 do
-		local size = rng:NextInteger(2, 4)
-		local f = create("Frame", {
-			Size = UDim2.fromOffset(size, size),
-			BackgroundColor3 = (i % 2 == 0) and THEME.Cyan or THEME.Sky,
-			BorderSizePixel = 0,
-		}, content)
-		corner(f, 2)
-		particles[i] = {
-			frame = f,
-			x = rng:NextNumber(),
-			y = rng:NextNumber(),
-			speed = rng:NextNumber(0.02, 0.07),
-			phase = rng:NextNumber(0, 6.28),
-			sway = rng:NextNumber(0.004, 0.02),
-			base = rng:NextNumber(0.35, 0.8),
+		}, l)
+		rain[i] = {
+			label = l,
+			x = 16 + (i - 1) * 31,
+			speed = rng:NextNumber(40, 110),
+			phase = rng:NextNumber(0, H + 240),
+			timer = rng:NextNumber(0, 0.2),
+			interval = rng:NextNumber(0.08, 0.22),
 		}
 	end
 
-	-- HUD corner brackets + readouts
-	local hudBrackets, hudTexts = {}, {}
-	local function bracket(ax, ay)
-		local mx = ax == 1 and -24 or 24
-		local my = ay == 1 and -24 or 24
-		for _, sz in ipairs({ Vector2.new(44, 2), Vector2.new(2, 44) }) do
-			table.insert(hudBrackets, create("Frame", {
-				AnchorPoint = Vector2.new(ax, ay),
-				Position = UDim2.new(ax, mx, ay, my),
-				Size = UDim2.fromOffset(sz.X, sz.Y),
+	----------------------------------------------------------------
+	-- CIRCUIT BOARD centered on the chip
+	----------------------------------------------------------------
+	local board = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(CX, CY),
+		Size = UDim2.fromOffset(0, 0),
+		BackgroundTransparency = 1,
+	}, overlay)
+
+	-- EM field rings (upper half only; max diameter keeps them left of the text)
+	local fieldRings = {}
+	for i = 1, 3 do
+		local f = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(0, 0),
+			Size = UDim2.fromOffset(110, 110),
+			BackgroundTransparency = 1,
+		}, board)
+		corner(f, 1000)
+		local st = stroke(f, THEME.Cyan, 1.5, 0.6)
+		create("UIGradient", {
+			Rotation = 90,
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.3),
+				NumberSequenceKeypoint.new(0.6, 0.8),
+				NumberSequenceKeypoint.new(0.8, 1),
+				NumberSequenceKeypoint.new(1, 1),
+			}),
+		}, st)
+		fieldRings[i] = { frame = f, stroke = st }
+	end
+
+	-- Traces (long ones go left / up / down, right side only has short stubs)
+	local PATHS = {
+		{ V(-61, -40), V(-120, -40), V(-150, -70), V(-190, -70) },
+		{ V(-61, -13.6), V(-190, -13.6) },
+		{ V(-61, 13.6), V(-190, 13.6) },
+		{ V(-61, 40), V(-120, 40), V(-150, 70), V(-190, 70) },
+		{ V(-36, -61), V(-36, -110), V(-70, -140), V(-70, -186) },
+		{ V(0, -61), V(0, -186) },
+		{ V(36, -61), V(36, -110), V(70, -140), V(70, -186) },
+		{ V(-36, 61), V(-36, 110), V(-70, 140), V(-70, 186) },
+		{ V(0, 61), V(0, 186) },
+		{ V(36, 61), V(36, 110), V(70, 140), V(70, 186) },
+		{ V(61, -40), V(110, -40), V(130, -60) },
+		{ V(61, -13.6), V(120, -13.6) },
+		{ V(61, 13.6), V(120, 13.6) },
+		{ V(61, 40), V(110, 40), V(130, 60) },
+	}
+
+	local pathInfo, traceFrames = {}, {}
+	for k, pts in ipairs(PATHS) do
+		local lens, total, frames = {}, 0, {}
+		for i = 1, #pts - 1 do
+			lens[i] = (pts[i + 1] - pts[i]).Magnitude
+			total += lens[i]
+			local seg = newSegment(board, 2, THEME.Cyan, 1)
+			placeSegment(seg, pts[i].X, pts[i].Y, pts[i + 1].X, pts[i + 1].Y)
+			table.insert(frames, seg)
+		end
+		for i = 2, #pts do -- junction / end nodes
+			local big = i == #pts
+			local n = create("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(pts[i].X, pts[i].Y),
+				Size = UDim2.fromOffset(big and 7 or 4, big and 7 or 4),
 				BackgroundColor3 = THEME.Cyan,
 				BackgroundTransparency = 1,
 				BorderSizePixel = 0,
-			}, content))
+			}, board)
+			corner(n, 4)
+			table.insert(frames, n)
+		end
+		traceFrames[k] = frames
+		pathInfo[k] = { pts = pts, lens = lens, total = total }
+	end
+
+	local function pointAt(info, d)
+		d = math.clamp(d, 0, info.total)
+		for i, l in ipairs(info.lens) do
+			if d <= l then
+				return info.pts[i]:Lerp(info.pts[i + 1], l > 0 and d / l or 0)
+			end
+			d -= l
+		end
+		return info.pts[#info.pts]
+	end
+
+	-- Data pulses flowing toward the chip
+	local pulses = {}
+	for _, info in ipairs(pathInfo) do
+		local pl = { info = info, speed = rng:NextNumber(90, 140), phase = rng:NextNumber(0, info.total), dots = {} }
+		for k = 1, 3 do
+			local size = k == 1 and 5 or (k == 2 and 4 or 3)
+			local d = create("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Size = UDim2.fromOffset(size, size),
+				BackgroundColor3 = k == 1 and WHITE or THEME.Cyan,
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+			}, board)
+			corner(d, 3)
+			if k == 1 then
+				stroke(d, THEME.Cyan, 3, 0.55)
+			end
+			pl.dots[k] = d
+		end
+		table.insert(pulses, pl)
+	end
+	local pulseTransparency = { 0.05, 0.35, 0.6 }
+
+	-- Tesla coil nodes with EM pulse rings
+	local coils = {}
+	for _, pos in ipairs({ V(-140, -100), V(-140, 100), V(125, -105), V(125, 105) }) do
+		local node = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(pos.X, pos.Y),
+			Size = UDim2.fromOffset(18, 18),
+			BackgroundColor3 = Color3.fromRGB(6, 12, 18),
+			BorderSizePixel = 0,
+		}, board)
+		corner(node, 9)
+		stroke(node, THEME.Cyan, 2, 0.15)
+		local nodeCore = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(6, 6),
+			BackgroundColor3 = WHITE,
+			BorderSizePixel = 0,
+		}, node)
+		corner(nodeCore, 3)
+		local rings = {}
+		for k = 1, 2 do
+			local r = create("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(pos.X, pos.Y),
+				Size = UDim2.fromOffset(18, 18),
+				BackgroundTransparency = 1,
+			}, board)
+			corner(r, 1000)
+			rings[k] = { frame = r, stroke = stroke(r, THEME.Cyan, 1.5, 1) }
+		end
+		table.insert(coils, { pos = pos, core = nodeCore, rings = rings })
+	end
+
+	-- Electric arcs: coil node <-> chip
+	local ARC_SEGMENTS = 9
+	local arcs = {}
+	for _, c in ipairs(coils) do
+		local arc = {
+			from = c.pos,
+			to = V(c.pos.X > 0 and 52 or -52, c.pos.Y < 0 and -34 or 34),
+			glow = {},
+			core = {},
+			on = false,
+			offAt = 0,
+			nextUpdate = 0,
+		}
+		for i = 1, ARC_SEGMENTS do
+			arc.glow[i] = newSegment(board, 5, THEME.Cyan, 1)
+			arc.core[i] = newSegment(board, 1.6, WHITE, 1)
+		end
+		table.insert(arcs, arc)
+	end
+	local function setArcVisible(arc, on)
+		for i = 1, ARC_SEGMENTS do
+			arc.glow[i].BackgroundTransparency = on and 0.72 or 1
+			arc.core[i].BackgroundTransparency = on and 0 or 1
 		end
 	end
-	bracket(0, 0)
-	bracket(1, 0)
-	bracket(0, 1)
-	bracket(1, 1)
-
-	local function hudText(text, ax, ay)
-		local l = label(content, {
-			Text = text,
-			Font = Enum.Font.Code,
-			TextSize = 11,
-			TextColor3 = THEME.Sky,
-			TextTransparency = 1,
-			TextXAlignment = ax == 1 and Enum.TextXAlignment.Right or Enum.TextXAlignment.Left,
-			AnchorPoint = Vector2.new(ax, ay),
-			Position = UDim2.new(ax, ax == 1 and -76 or 76, ay, ay == 1 and -17 or 17),
-			Size = UDim2.fromOffset(280, 14),
-		})
-		table.insert(hudTexts, l)
-		return l
+	local function regenArc(arc, strength)
+		local dir = arc.to - arc.from
+		local normal = V(-dir.Y, dir.X).Unit
+		local pts = {}
+		for i = 0, ARC_SEGMENTS do
+			local f = i / ARC_SEGMENTS
+			local env = math.sin(f * math.pi)
+			local off = (rng:NextNumber() - 0.5) * 2 * 10 * env * (0.5 + strength)
+			pts[i + 1] = arc.from:Lerp(arc.to, f) + normal * off
+		end
+		for i = 1, ARC_SEGMENTS do
+			placeSegment(arc.glow[i], pts[i].X, pts[i].Y, pts[i + 1].X, pts[i + 1].Y)
+			placeSegment(arc.core[i], pts[i].X, pts[i].Y, pts[i + 1].X, pts[i + 1].Y)
+		end
 	end
-	hudText("SYSTEM BOOT  //  RYZEN", 0, 0)
-	hudText("WORLD: " .. seaText, 1, 0)
-	hudText("BUILD V4.6  //  BY " .. string.upper(CFG.Credit), 0, 1)
-	local fpsHud = hudText("FPS 60", 1, 1)
-
-	-- Opening line (grows from the center of the screen)
-	local lineWidth = math.min(camera.ViewportSize.X * 0.8, 720)
-	local introLine = create("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(0, 2),
-		BackgroundColor3 = THEME.Cyan,
-		BorderSizePixel = 0,
-	}, content)
-	create("UIGradient", {
-		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(0.5, 0),
-			NumberSequenceKeypoint.new(1, 1),
-		}),
-	}, introLine)
+	local chipFlash = 0
+	local forceArcsUntil = 0
 
 	----------------------------------------------------------------
-	-- CENTER STACK (emblem, title, progress)
+	-- CHIP EMBLEM (scaled 0.8) with mechanical cyber R
 	----------------------------------------------------------------
-	local stack = create("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(600, 400),
-		BackgroundTransparency = 1,
-	}, content)
-	local baseScale = math.clamp(camera.ViewportSize.Y / 760, 0.55, 1.3)
-	baseScale = math.min(baseScale, (camera.ViewportSize.X - 20) / 600)
-	local stackScale = create("UIScale", { Scale = baseScale }, stack)
-
-	-- Emblem
 	local emblem = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromOffset(300, 105),
+		Position = UDim2.fromOffset(CX, CY),
 		Size = UDim2.fromOffset(200, 200),
 		BackgroundTransparency = 1,
-	}, stack)
+	}, overlay)
 	local emblemScale = create("UIScale", { Scale = 0 }, emblem)
+	local EMBLEM_SCALE = 0.8
 
 	local glowLayers = {}
 	for i = 1, 8 do
@@ -1271,66 +1365,92 @@ local function runLoadingScreen(onFinished)
 		glowLayers[i] = c
 	end
 
-	local function makeRing(diameter, thickness)
+	local function pin(x, y, w, h)
 		local f = create("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromOffset(100, 100),
-			Size = UDim2.fromOffset(diameter, diameter),
-			BackgroundTransparency = 1,
-		}, emblem)
-		corner(f, diameter / 2)
-		local s = stroke(f, WHITE, thickness, 0)
-		return create("UIGradient", { Color = BORDER_COLORS, Transparency = BORDER_TRANSPARENCY }, s)
-	end
-	local ringA = makeRing(150, 4)
-	local ringB = makeRing(120, 2)
-	-- Mechanical gear ring (rotates slowly)
-	local gear = create("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromOffset(100, 100),
-		Size = UDim2.fromOffset(200, 200),
-		BackgroundTransparency = 1,
-	}, emblem)
-	local gearRing = create("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(168, 168),
-		BackgroundTransparency = 1,
-	}, gear)
-	corner(gearRing, 84)
-	stroke(gearRing, THEME.Cyan, 1.5, 0.45)
-	for i = 0, 19 do
-		local a = math.rad(i * 18)
-		local big = i % 5 == 0
-		local tooth = create("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromOffset(100 + math.cos(a) * 87, 100 + math.sin(a) * 87),
-			Size = UDim2.fromOffset(big and 12 or 7, big and 9 or 6),
-			Rotation = math.deg(a) + 90,
+			Position = UDim2.fromOffset(100 + x, 100 + y),
+			Size = UDim2.fromOffset(w, h),
 			BackgroundColor3 = THEME.Cyan,
-			BackgroundTransparency = big and 0.1 or 0.45,
+			BackgroundTransparency = 0.25,
 			BorderSizePixel = 0,
-		}, gear)
-		corner(tooth, 1)
+		}, emblem)
+		corner(f, 1)
+	end
+	for _, x in ipairs({ -45, 0, 45 }) do
+		pin(x, -70, 4, 12)
+		pin(x, 70, 4, 12)
+	end
+	for _, y in ipairs({ -50, -17, 17, 50 }) do
+		pin(-70, y, 12, 4)
+		pin(70, y, 12, 4)
 	end
 
-	local core = create("Frame", {
+	local chip = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromOffset(100, 100),
-		Size = UDim2.fromOffset(96, 96),
-		BackgroundColor3 = Color3.fromRGB(5, 10, 16),
+		Size = UDim2.fromOffset(128, 128),
+		BackgroundColor3 = Color3.fromRGB(6, 12, 18),
 		BorderSizePixel = 0,
 	}, emblem)
-	corner(core, 48)
-	stroke(core, THEME.Cyan, 1, 0.5)
-	local coreScale = create("UIScale", { Scale = 1 }, core)
-	-- Mechanical cyber "R": neon-outlined armor strips + rivets (designed in a 64x80 box)
+	corner(chip, 12)
+	local chipStroke = stroke(chip, WHITE, 2.5, 0)
+	local chipGradient = create("UIGradient", { Color = BORDER_COLORS, Transparency = BORDER_TRANSPARENCY }, chipStroke)
+
+	for _, c in ipairs({ V(9, 9), V(119, 9), V(9, 119), V(119, 119) }) do -- corner screws
+		local s = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(c.X, c.Y),
+			Size = UDim2.fromOffset(5, 5),
+			BackgroundColor3 = Color3.fromRGB(14, 26, 36),
+			BorderSizePixel = 0,
+		}, chip)
+		corner(s, 3)
+		stroke(s, THEME.Cyan, 1, 0.4)
+	end
+
+	local die = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(64, 60),
+		Size = UDim2.fromOffset(100, 100),
+		BackgroundColor3 = Color3.fromRGB(8, 18, 26),
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+	}, chip)
+	corner(die, 8)
+	stroke(die, THEME.Cyan, 1, 0.55)
+	for _, f in ipairs({ 0.25, 0.5, 0.75 }) do
+		create("Frame", {
+			Position = UDim2.fromScale(0, f),
+			Size = UDim2.new(1, 0, 0, 1),
+			BackgroundColor3 = THEME.Cyan,
+			BackgroundTransparency = 0.9,
+			BorderSizePixel = 0,
+		}, die)
+		create("Frame", {
+			Position = UDim2.fromScale(f, 0),
+			Size = UDim2.new(0, 1, 1, 0),
+			BackgroundColor3 = THEME.Cyan,
+			BackgroundTransparency = 0.9,
+			BorderSizePixel = 0,
+		}, die)
+	end
+	label(chip, {
+		Text = "RZN-4.6",
+		Font = Enum.Font.Code,
+		TextSize = 9,
+		TextColor3 = THEME.Muted,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(0, 112),
+		Size = UDim2.fromOffset(128, 12),
+	})
+
+	-- Mechanical cyber "R"
 	local rHolder = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromOffset(64, 80),
 		BackgroundTransparency = 1,
-	}, core)
+	}, die)
 	create("UIScale", { Scale = 0.8 }, rHolder)
 
 	local rGradients = {}
@@ -1349,7 +1469,7 @@ local function runLoadingScreen(onFinished)
 		corner(f, 2)
 		local st = stroke(f, WHITE, 1.5, 0)
 		table.insert(rGradients, create("UIGradient", { Color = BORDER_COLORS, Transparency = BORDER_TRANSPARENCY }, st))
-		create("Frame", { -- circuit trace running through the strip
+		create("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
 			Size = UDim2.new(1, -8, 0, 1),
@@ -1370,50 +1490,58 @@ local function runLoadingScreen(onFinished)
 		stroke(r, THEME.Cyan, 1.5, 0.2)
 	end
 	local T = 9
-	strip(5, 4, 5, 76, T) -- stem
-	strip(5, 4, 40, 4, T) -- top bar
-	strip(40, 4, 56, 20, T) -- chamfer (top right)
-	strip(56, 20, 56, 34, T) -- bowl side
-	strip(56, 34, 42, 48, T) -- chamfer (bottom right)
-	strip(42, 48, 5, 48, T) -- middle bar
-	strip(26, 48, 58, 76, T) -- leg
+	strip(5, 4, 5, 76, T)
+	strip(5, 4, 40, 4, T)
+	strip(40, 4, 56, 20, T)
+	strip(56, 20, 56, 34, T)
+	strip(56, 34, 42, 48, T)
+	strip(42, 48, 5, 48, T)
+	strip(26, 48, 58, 76, T)
 	rivet(5, 4)
 	rivet(56, 20)
 	rivet(42, 48)
 	rivet(58, 76)
 	rivet(5, 76)
 
-	local dots = {}
-	local function makeDot(size, color, radius, speed, phase)
-		local d = create("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.fromOffset(size, size),
-			BackgroundColor3 = color,
-			BorderSizePixel = 0,
-		}, emblem)
-		corner(d, size / 2)
-		stroke(d, color, 3, 0.6)
-		table.insert(dots, { frame = d, radius = radius, speed = speed, phase = phase })
+	-- Electrons orbiting the chip
+	local orbits = {
+		{ a = 118, b = 40, tilt = math.rad(35), speed = 1.9, phase = 0 },
+		{ a = 118, b = 40, tilt = math.rad(-35), speed = -1.5, phase = 2.2 },
+		{ a = 96, b = 34, tilt = math.rad(90), speed = 1.3, phase = 4.1 },
+	}
+	for _, o in ipairs(orbits) do
+		o.dots = {}
+		for k = 1, 5 do
+			local size = k == 1 and 8 or (7 - k)
+			local d = create("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Size = UDim2.fromOffset(size, size),
+				BackgroundColor3 = k == 1 and WHITE or THEME.Cyan,
+				BackgroundTransparency = k == 1 and 0 or (0.1 + k * 0.15),
+				BorderSizePixel = 0,
+			}, emblem)
+			corner(d, size / 2)
+			if k == 1 then
+				stroke(d, THEME.Cyan, 3, 0.5)
+			end
+			o.dots[k] = d
+		end
 	end
-	makeDot(7, THEME.Cyan, 100, 1.1, 0)
-	makeDot(5, WHITE, 100, 1.1, 2.1)
-	makeDot(6, THEME.Sky, 100, 1.1, 4.2)
-	makeDot(5, THEME.Cyan, 60, -1.8, 1)
-	makeDot(4, WHITE, 60, -1.8, 4.1)
 
-	-- Title (letter by letter)
+	----------------------------------------------------------------
+	-- RIGHT SIDE: title, boot terminal, status, segmented bar
+	----------------------------------------------------------------
 	local TITLE = "RYZEN CONFIG"
 	local titleRow = create("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromOffset(300, 222),
-		Size = UDim2.fromOffset(600, 52),
+		Position = UDim2.fromOffset(402, 56),
+		Size = UDim2.fromOffset(350, 40),
 		BackgroundTransparency = 1,
-	}, stack)
+	}, overlay)
 	create("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
-		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		HorizontalAlignment = Enum.HorizontalAlignment.Left,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
-		Padding = UDim.new(0, 6),
+		Padding = UDim.new(0, 4),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, titleRow)
 
@@ -1423,72 +1551,80 @@ local function runLoadingScreen(onFinished)
 		local isSpace = ch == " "
 		local holder = create("Frame", {
 			LayoutOrder = i,
-			Size = UDim2.fromOffset(isSpace and 22 or 0, 52),
+			Size = UDim2.fromOffset(isSpace and 16 or 0, 40),
 			AutomaticSize = isSpace and Enum.AutomaticSize.None or Enum.AutomaticSize.X,
 			BackgroundTransparency = 1,
 		}, titleRow)
 		letters[i] = label(holder, {
 			Text = isSpace and "" or ch,
 			Font = Enum.Font.Michroma,
-			TextSize = 34,
+			TextSize = 26,
 			TextColor3 = THEME.Cyan,
 			TextStrokeColor3 = THEME.Cyan,
 			TextStrokeTransparency = 1,
 			TextTransparency = 1,
 			AutomaticSize = Enum.AutomaticSize.X,
-			Size = UDim2.fromOffset(0, 52),
-			Position = UDim2.fromOffset(0, 28),
+			Size = UDim2.fromOffset(0, 40),
+			Position = UDim2.fromOffset(0, 22),
 		})
 	end
 
-	-- Lower group: subtitle, status, percent, segmented bar, tips
-	local lower = create("CanvasGroup", {
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromOffset(300, 276),
-		Size = UDim2.fromOffset(600, 112),
+	local info = create("CanvasGroup", {
+		Position = UDim2.fromOffset(402, 100),
+		Size = UDim2.fromOffset(350, 230),
 		BackgroundTransparency = 1,
 		GroupTransparency = 1,
-	}, stack)
+	}, overlay)
 
-	label(lower, {
+	label(info, {
 		Text = "V4.6   •   BY " .. string.upper(CFG.Credit),
 		Font = Enum.Font.GothamMedium,
-		TextSize = 13,
+		TextSize = 12,
 		TextColor3 = THEME.Muted,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Size = UDim2.fromOffset(600, 18),
+		Size = UDim2.fromOffset(350, 16),
 	})
 
-	local statusLabel = label(lower, {
+	local logLabel = label(info, {
 		Text = "",
-		Font = Enum.Font.GothamMedium,
+		Font = Enum.Font.Code,
+		TextSize = 11,
+		RichText = true,
+		TextColor3 = THEME.Sky,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(0, 30),
+		Size = UDim2.fromOffset(350, 84),
+	})
+
+	local statusLabel = label(info, {
+		Text = "",
+		Font = Enum.Font.Code,
 		TextSize = 12,
 		TextColor3 = THEME.Sky,
-		Position = UDim2.fromOffset(46, 38),
-		Size = UDim2.fromOffset(400, 18),
+		Position = UDim2.fromOffset(0, 128),
+		Size = UDim2.fromOffset(240, 18),
 	})
-	local percentLabel = label(lower, {
+	local percentLabel = label(info, {
 		Text = "0",
 		Font = Enum.Font.GothamBlack,
-		TextSize = 26,
+		TextSize = 24,
 		TextColor3 = THEME.Cyan,
 		RichText = true,
 		TextXAlignment = Enum.TextXAlignment.Right,
-		Position = UDim2.fromOffset(454, 24),
-		Size = UDim2.fromOffset(100, 34),
+		Position = UDim2.fromOffset(250, 118),
+		Size = UDim2.fromOffset(100, 32),
 	})
 
-	local SEGMENTS = 32
+	local SEGMENTS = 25
 	local barHolder = create("Frame", {
-		Position = UDim2.fromOffset(46, 66),
-		Size = UDim2.fromOffset(508, 8),
+		Position = UDim2.fromOffset(0, 158),
+		Size = UDim2.fromOffset(346, 8),
 		BackgroundTransparency = 1,
-	}, lower)
+	}, info)
 	local segments = {}
 	for j = 1, SEGMENTS do
 		local seg = create("Frame", {
-			Position = UDim2.fromOffset((j - 1) * 16, 0),
-			Size = UDim2.fromOffset(12, 8),
+			Position = UDim2.fromOffset((j - 1) * 14, 0),
+			Size = UDim2.fromOffset(10, 8),
 			BackgroundColor3 = Color3.fromRGB(22, 32, 44),
 			BorderSizePixel = 0,
 		}, barHolder)
@@ -1496,39 +1632,63 @@ local function runLoadingScreen(onFinished)
 		segments[j] = seg
 	end
 
-	local tipLabel = label(lower, {
+	local metricsLine = label(info, {
 		Text = "",
-		Font = Enum.Font.GothamMedium,
-		TextSize = 11,
+		Font = Enum.Font.Code,
+		TextSize = 10,
 		TextColor3 = THEME.Muted,
-		TextTransparency = 1,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Position = UDim2.fromOffset(0, 90),
-		Size = UDim2.fromOffset(600, 16),
+		Position = UDim2.fromOffset(0, 178),
+		Size = UDim2.fromOffset(350, 14),
 	})
 
-	local progressValue = create("NumberValue", { Value = 0 }, loadGui)
+	-- HUD corner brackets
+	local hudBrackets = {}
+	local function bracket(ax, ay)
+		local mx = ax == 1 and -14 or 14
+		local my = ay == 1 and -14 or 14
+		for _, sz in ipairs({ Vector2.new(24, 2), Vector2.new(2, 24) }) do
+			table.insert(hudBrackets, create("Frame", {
+				AnchorPoint = Vector2.new(ax, ay),
+				Position = UDim2.new(ax, mx, ay, my),
+				Size = UDim2.fromOffset(sz.X, sz.Y),
+				BackgroundColor3 = THEME.Cyan,
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+			}, overlay))
+		end
+	end
+	bracket(0, 0)
+	bracket(1, 0)
+	bracket(0, 1)
+	bracket(1, 1)
+
+	local progressValue = create("NumberValue", { Value = 0 }, overlay)
+
+	local flashFrame = create("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(190, 245, 255),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = 10,
+	}, overlay)
 
 	----------------------------------------------------------------
-	-- HELPERS
+	-- HELPERS: burst, typewriter status, boot log
 	----------------------------------------------------------------
-	local running = true
-
-	local function burst(color, diameter) -- ripple ring expanding from the emblem
-		local s = stackScale.Scale
+	local function burst(color, diameter)
 		local r = create("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.new(0.5, 0, 0.5, -95 * s),
-			Size = UDim2.fromOffset(120 * s, 120 * s),
+			Position = UDim2.fromOffset(CX, CY),
+			Size = UDim2.fromOffset(80, 80),
 			BackgroundTransparency = 1,
-		}, loadGui)
+			ZIndex = 5,
+		}, overlay)
 		corner(r, 1000)
 		local st = stroke(r, color, 3, 0.15)
-		local d = diameter * s
-		local tw = TweenService:Create(r, TweenInfo.new(1.1, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-			Size = UDim2.fromOffset(d, d),
+		local tw = TweenService:Create(r, TweenInfo.new(1, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+			Size = UDim2.fromOffset(diameter, diameter),
 		})
-		TweenService:Create(st, TweenInfo.new(1.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		TweenService:Create(st, TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			Transparency = 1,
 			Thickness = 0.5,
 		}):Play()
@@ -1539,7 +1699,7 @@ local function runLoadingScreen(onFinished)
 	end
 
 	local statusToken = 0
-	local function setStatus(text) -- typewriter effect
+	local function setStatus(text)
 		statusToken += 1
 		local token = statusToken
 		statusLabel.Text = text
@@ -1556,75 +1716,131 @@ local function runLoadingScreen(onFinished)
 		end)
 	end
 
-	local tips = {
-		"Tap the island on the right to open the dashboard",
-		"Live FPS and Ping monitoring",
-		"Track your Level, Beli and Fragments",
-		"Switch time zones with one tap",
-	}
-	task.spawn(function()
-		local i = 1
-		while running do
-			tipLabel.Text = tips[i]
-			TweenService:Create(tipLabel, TweenInfo.new(0.35), { TextTransparency = 0.1 }):Play()
-			task.wait(1.6)
-			if not running then
-				break
-			end
-			TweenService:Create(tipLabel, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
-			task.wait(0.34)
-			i = i % #tips + 1
+	local logLines = {}
+	local OK_TAG = string.format('<font color="%s">OK</font>', rgbTag(Color3.fromRGB(0, 255, 170)))
+	local function pushLog(text)
+		table.insert(logLines, string.format(
+			'<font color="%s">[%5.2f]</font> %s %s',
+			rgbTag(THEME.Muted), os.clock() - startClock, text, OK_TAG
+		))
+		if #logLines > 5 then
+			table.remove(logLines, 1)
 		end
-	end)
+		logLabel.Text = table.concat(logLines, "\n")
+	end
+	local function logBatch(lines)
+		task.spawn(function()
+			for _, line in ipairs(lines) do
+				pushLog(line)
+				task.wait(0.14)
+			end
+		end)
+	end
 
 	----------------------------------------------------------------
 	-- PER-FRAME ANIMATION
 	----------------------------------------------------------------
-	local startClock = os.clock()
-	local fpsSmooth, fpsTimer = 60, 0
+	local running = true
+	local pulsesOn = false
 	local titleWaveOn = false
+	local fpsSmooth, metricTimer = 60, 0
 
 	local loaderConn = RunService.RenderStepped:Connect(function(dt)
 		local t = os.clock() - startClock
+		local p = progressValue.Value
 		local pulse = (math.sin(t * 2.2) + 1) / 2
 
-		-- aurora orbs drift
-		for _, o in ipairs(orbs) do
-			o.frame.Position = UDim2.fromScale(
-				0.5 + o.ax * math.sin(t * o.sx + o.px),
-				0.5 + o.ay * math.cos(t * o.sy + o.py)
-			)
+		-- code rain
+		for _, c in ipairs(rain) do
+			c.label.Position = UDim2.fromOffset(c.x, ((c.phase + t * c.speed) % (H + 240)) - 240)
+			c.timer -= dt
+			if c.timer <= 0 then
+				c.timer = c.interval
+				c.label.Text = randomColumn()
+			end
 		end
 
-		-- particles
-		for _, p in ipairs(particles) do
-			p.y = (p.y - p.speed * dt) % 1
-			p.frame.Position = UDim2.fromScale(p.x + math.sin(t * 0.8 + p.phase) * p.sway, p.y)
-			p.frame.BackgroundTransparency = math.clamp(p.base + 0.25 * math.sin(t * 2 + p.phase), 0.1, 0.95)
+		-- EM field rings
+		for i, r in ipairs(fieldRings) do
+			local q = (t * 0.32 + (i - 1) / #fieldRings) % 1
+			local d = 110 + q * 270
+			r.frame.Size = UDim2.fromOffset(d, d)
+			r.stroke.Transparency = 0.2 + 0.8 * q
 		end
 
-		-- emblem
-		ringA.Rotation = (t * 200) % 360
-		ringB.Rotation = (-t * 140) % 360
-		gear.Rotation = (t * 18) % 360
+		-- data pulses
+		if pulsesOn then
+			for _, pl in ipairs(pulses) do
+				local inf = pl.info
+				local d = inf.total - ((t * pl.speed + pl.phase) % (inf.total + 50))
+				for k, dot in ipairs(pl.dots) do
+					local pt = pointAt(inf, d + (k - 1) * 8)
+					dot.Position = UDim2.fromOffset(pt.X, pt.Y)
+				end
+			end
+		end
+
+		-- coil rings
+		for _, c in ipairs(coils) do
+			for k, r in ipairs(c.rings) do
+				local q = (t * 0.9 + (k - 1) * 0.5) % 1
+				local d = 18 + q * 56
+				r.frame.Size = UDim2.fromOffset(d, d)
+				r.stroke.Transparency = 0.3 + 0.7 * q
+			end
+			c.core.BackgroundTransparency = 0.5 * (1 - pulse)
+		end
+
+		-- electric arcs (more frequent as loading progresses)
+		local forced = t < forceArcsUntil
+		for _, arc in ipairs(arcs) do
+			if arc.on then
+				if t >= arc.offAt and not forced then
+					arc.on = false
+					setArcVisible(arc, false)
+				elseif t >= arc.nextUpdate then
+					arc.nextUpdate = t + 0.045
+					regenArc(arc, forced and 1 or p)
+				end
+			elseif forced or rng:NextNumber() < (0.4 + 2.4 * p) * dt then
+				arc.on = true
+				arc.offAt = t + rng:NextNumber(0.1, 0.35)
+				arc.nextUpdate = 0
+				setArcVisible(arc, true)
+				chipFlash = math.min(1.5, chipFlash + 0.5)
+			end
+		end
+
+		-- chip glow
+		chipFlash = math.max(0, chipFlash - dt * 4)
+		chipGradient.Rotation = (t * 120) % 360
+		chipStroke.Thickness = 2.2 + pulse * 0.5 + chipFlash * 2
+		for i, g in ipairs(glowLayers) do
+			g.BackgroundTransparency = 0.975 - 0.012 * pulse - 0.012 * chipFlash - 0.001 * i
+		end
+
+		-- cyber R + glitch
 		for _, rg in ipairs(rGradients) do
 			rg.Rotation = (t * 160) % 360
 		end
-		if t % 3.6 < 0.14 then -- short cyber glitch on the R
+		if t % 3.6 < 0.14 then
 			rHolder.Position = UDim2.new(0.5, rng:NextInteger(-3, 3), 0.5, rng:NextInteger(-2, 2))
 		else
 			rHolder.Position = UDim2.fromScale(0.5, 0.5)
 		end
-		coreScale.Scale = 1 + 0.035 * math.sin(t * 2.2)
-		for i, g in ipairs(glowLayers) do
-			g.BackgroundTransparency = 0.975 - 0.012 * pulse - 0.001 * i
-		end
-		for _, d in ipairs(dots) do
-			local a = d.phase + t * d.speed
-			d.frame.Position = UDim2.fromOffset(100 + math.cos(a) * d.radius, 100 + math.sin(a) * d.radius)
+
+		-- electrons
+		for _, o in ipairs(orbits) do
+			local sign = o.speed >= 0 and 1 or -1
+			local ct, st = math.cos(o.tilt), math.sin(o.tilt)
+			for k, d in ipairs(o.dots) do
+				local ang = o.phase + t * o.speed - sign * (k - 1) * 0.16
+				local x, y = o.a * math.cos(ang), o.b * math.sin(ang)
+				d.Position = UDim2.fromOffset(100 + x * ct - y * st, 100 + x * st + y * ct)
+			end
 		end
 
-		-- title: brightness wave travelling through the letters
+		-- title brightness wave
 		if titleWaveOn then
 			for i, l in ipairs(letters) do
 				if letterLive[i] then
@@ -1644,7 +1860,6 @@ local function runLoadingScreen(onFinished)
 		end
 
 		-- segmented progress bar
-		local p = progressValue.Value
 		local lit = math.floor(p * SEGMENTS + 0.0001)
 		for j = 1, SEGMENTS do
 			local seg = segments[j]
@@ -1661,72 +1876,103 @@ local function runLoadingScreen(onFinished)
 			end
 		end
 		percentLabel.Text = string.format(
-			'%d<font size="14" color="%s">%%</font>',
+			'%d<font size="13" color="%s">%%</font>',
 			math.floor(p * 100 + 0.5), rgbTag(THEME.Muted)
 		)
 
-		-- FPS readout
+		-- compact system metrics line
 		fpsSmooth += (1 / math.max(dt, 1e-4) - fpsSmooth) * 0.1
-		fpsTimer += dt
-		if fpsTimer > 0.25 then
-			fpsTimer = 0
-			fpsHud.Text = string.format("FPS %d", math.floor(fpsSmooth + 0.5))
+		metricTimer += dt
+		if metricTimer > 0.15 then
+			metricTimer = 0
+			metricsLine.Text = string.format(
+				"CPU %d%%   MEM %d%%   NET %d%%   FPS %d",
+				math.clamp(math.floor(25 + 55 * p + rng:NextNumber(-10, 10)), 0, 100),
+				math.clamp(math.floor(28 + 35 * p + rng:NextNumber(-4, 4)), 0, 100),
+				math.clamp(math.floor(20 + 45 * p + rng:NextNumber(-12, 12)), 0, 100),
+				math.floor(fpsSmooth + 0.5)
+			)
 		end
 	end)
 
 	----------------------------------------------------------------
-	-- INTRO
+	-- INTRO (waits until the island has finished expanding)
 	----------------------------------------------------------------
-	TweenService:Create(introLine, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-		Size = UDim2.fromOffset(lineWidth, 2),
-	}):Play()
+	task.wait(0.45)
+	TweenService:Create(overlay, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { GroupTransparency = 0 }):Play()
 	for _, b in ipairs(hudBrackets) do
 		TweenService:Create(b, TweenInfo.new(0.6), { BackgroundTransparency = 0.4 }):Play()
 	end
-	for _, l in ipairs(hudTexts) do
-		TweenService:Create(l, TweenInfo.new(0.8), { TextTransparency = 0.35 }):Play()
-	end
-	task.wait(0.5)
+	task.wait(0.15)
 
-	TweenService:Create(emblemScale, TweenInfo.new(0.9, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-	TweenService:Create(introLine, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
-	burst(THEME.Cyan, 780)
-	task.wait(0.4)
+	TweenService:Create(emblemScale, TweenInfo.new(0.8, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = EMBLEM_SCALE }):Play()
+	burst(THEME.Cyan, 420)
+	chipFlash = 1.2
+	for k, frames in ipairs(traceFrames) do -- traces light up one after another
+		task.delay(0.1 + k * 0.05, function()
+			for _, f in ipairs(frames) do
+				TweenService:Create(f, TweenInfo.new(0.45), { BackgroundTransparency = 0.7 }):Play()
+			end
+		end)
+	end
+	task.delay(0.9, function()
+		for _, pl in ipairs(pulses) do
+			for k, dot in ipairs(pl.dots) do
+				TweenService:Create(dot, TweenInfo.new(0.4), { BackgroundTransparency = pulseTransparency[k] }):Play()
+			end
+		end
+		pulsesOn = true
+	end)
+	task.wait(0.35)
 
 	titleWaveOn = true
 	for i, l in ipairs(letters) do
-		task.delay((i - 1) * 0.05, function()
+		task.delay((i - 1) * 0.045, function()
 			letterLive[i] = true
-			TweenService:Create(l, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			TweenService:Create(l, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 				Position = UDim2.fromOffset(0, 0),
 				TextTransparency = 0,
 			}):Play()
 		end)
 	end
-	task.wait(0.65)
-	TweenService:Create(lower, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { GroupTransparency = 0 }):Play()
-	task.wait(0.35)
+	task.wait(0.55)
+	TweenService:Create(info, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { GroupTransparency = 0 }):Play()
+	task.wait(0.3)
 
 	----------------------------------------------------------------
 	-- LOADING STAGES (the first two also wait for real data)
 	----------------------------------------------------------------
 	local stages = {
-		{ 0.16, "Initializing modules...", 0.6 },
-		{ 0.40, "Loading player profile...", 0.7 },
-		{ 0.62, "Detecting sea & server...", 0.7 },
-		{ 0.84, "Syncing network & performance...", 0.7 },
-		{ 1.00, "Ready!", 0.55 },
+		{ 0.16, "> initializing modules...", 0.5 },
+		{ 0.40, "> loading player profile...", 0.6 },
+		{ 0.62, "> detecting sea & server...", 0.6 },
+		{ 0.84, "> syncing network & performance...", 0.6 },
+		{ 1.00, "> ready.", 0.5 },
 	}
 	for i, stage in ipairs(stages) do
 		setStatus(stage[2])
 
 		if i == 1 then
+			logBatch({ "boot: ryzen-kernel 4.6.0", "cpu: 8 cores online", "mem: heap allocated" })
 			local t0 = os.clock()
 			while not game:IsLoaded() and os.clock() - t0 < 10 do
 				task.wait(0.1)
 			end
-		elseif i == 2 and seaText ~= "UNKNOWN" then
-			player:WaitForChild("Data", 8) -- Blox Fruits stats folder
+		elseif i == 2 then
+			logBatch({ "auth: " .. player.Name, "profile: avatar cache warmed", "data: stats service linked" })
+			if seaText ~= "UNKNOWN" then
+				player:WaitForChild("Data", 8) -- Blox Fruits stats folder
+			end
+		elseif i == 3 then
+			logBatch({ "world: " .. seaText, "scan: map segments indexed", "net: route resolved" })
+		elseif i == 4 then
+			logBatch({
+				string.format("net: ping %d ms", math.floor(getPing() + 0.5)),
+				string.format("gfx: %d fps", math.floor(fpsSmooth + 0.5)),
+				"ui: mounting island module",
+			})
+		else
+			logBatch({ "all modules loaded", "state: READY" })
 		end
 
 		local tween = TweenService:Create(progressValue, TweenInfo.new(stage[3], Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
@@ -1735,32 +1981,31 @@ local function runLoadingScreen(onFinished)
 		tween:Play()
 		tween.Completed:Wait()
 		if i < #stages then
-			burst(THEME.Sky, 440)
+			burst(THEME.Sky, 300)
 		end
-		task.wait(0.1)
+		task.wait(0.08)
 	end
 	statusLabel.TextColor3 = THEME.Cyan
 
 	----------------------------------------------------------------
-	-- EXIT: flash -> content fades -> shutter opens along the center line
+	-- EXIT: final discharge -> flash -> overlay fades away revealing the dashboard
 	----------------------------------------------------------------
-	task.wait(0.4)
-	burst(WHITE, 1500)
-	TweenService:Create(emblemScale, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 1.25 }):Play()
-	TweenService:Create(content, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { GroupTransparency = 1 }):Play()
-	TweenService:Create(edgeTop, TweenInfo.new(0.4), { BackgroundTransparency = 0 }):Play()
-	TweenService:Create(edgeBottom, TweenInfo.new(0.4), { BackgroundTransparency = 0 }):Play()
-	task.wait(0.55)
+	task.wait(0.25)
+	forceArcsUntil = os.clock() - startClock + 0.6
+	chipFlash = 1.5
+	burst(WHITE, 700)
+	task.wait(0.25)
+	TweenService:Create(flashFrame, TweenInfo.new(0.1), { BackgroundTransparency = 0.5 }):Play()
+	task.wait(0.12)
+	TweenService:Create(flashFrame, TweenInfo.new(0.4), { BackgroundTransparency = 1 }):Play()
+	TweenService:Create(emblemScale, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = EMBLEM_SCALE * 1.2 }):Play()
+	TweenService:Create(overlay, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { GroupTransparency = 1 }):Play()
+	task.delay(0.3, onFinished)
+	task.wait(0.65)
 	running = false
 
-	local openInfo = TweenInfo.new(0.95, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut)
-	TweenService:Create(panelTop, openInfo, { Position = UDim2.fromScale(0, -0.5) }):Play()
-	TweenService:Create(panelBottom, openInfo, { Position = UDim2.fromScale(0, 1) }):Play()
-	task.delay(0.3, onFinished)
-	task.wait(1.0)
-
 	loaderConn:Disconnect()
-	loadGui:Destroy()
+	overlay:Destroy()
 end
 
 --// MAIN LOOP
@@ -1835,20 +2080,20 @@ gui.Destroying:Connect(function()
 	mainConnection:Disconnect()
 end)
 
---// START: loading screen -> island intro -> notification
+--// START: island opens -> loading plays inside it -> dashboard revealed -> notification
 local function onLoaded()
-	island.Size = UDim2.fromOffset(46, CFG.CollapsedSize.Y)
-	TweenService:Create(island, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.fromOffset(CFG.CollapsedSize.X, CFG.CollapsedSize.Y),
-	}):Play()
-	task.delay(0.8, function()
+	if not CFG.StartOpen then
+		setExpanded(false)
+	end
+	task.delay(CFG.StartOpen and 0.4 or 0.9, function()
 		notify(CFG.Name, "Loaded successfully  •  " .. seaText .. "  •  by " .. CFG.Credit, CFG.NotifyDuration)
 	end)
 end
 
+island.Size = UDim2.fromOffset(46, CFG.CollapsedSize.Y) -- pill grows into the open panel
+setExpanded(true) -- UI is open by default
 if CFG.LoadingScreen then
-	island.Size = UDim2.fromOffset(46, CFG.CollapsedSize.Y) -- hidden behind the loader anyway
-	task.spawn(runLoadingScreen, onLoaded)
+	task.spawn(runInlineLoading, onLoaded)
 else
 	onLoaded()
 end
