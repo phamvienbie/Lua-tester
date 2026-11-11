@@ -1,5 +1,5 @@
 --[[
-	RYZEN CONFIG V4.6  |  Dynamic Island HUD  |  by Kaibeo  |  LocalScript
+	RYZEN CONFIG V4.7  |  Dynamic Island HUD  |  by Kaibeo  |  LocalScript
 	Place in: StarterPlayer > StarterPlayerScripts (or StarterGui)
 
 	Features
@@ -44,7 +44,7 @@ end
 
 --// CONFIG
 local CFG = {
-	Name = "Ryzen Config V4.6",
+	Name = "Ryzen Config Version 4.7",
 	Credit = "Kaibeo",
 	-- Vietnamese alternative: "Cảm ơn bạn đã sử dụng config banana by Kaibeo"
 	MarqueeText = "Thank you for using Banana Config by Kaibeo",
@@ -166,7 +166,7 @@ end
 --// TIME ZONE LOGIC
 local REGIONS = {
 	{ id = "UTC", place = "Universal", offset = 0 },
-	{ id = "ICT", place = "Vietnam", offset = 7 },
+	{ id = "VNA", place = "Vietnam", offset = 7 },
 	{ id = "JST", place = "Japan", offset = 9 },
 	{ id = "SGT", place = "Singapore", offset = 8 },
 	{ id = "EST", dstId = "EDT", place = "New York", offset = -5, usDST = true },
@@ -1435,7 +1435,7 @@ local function runInlineLoading(onFinished)
 		}, die)
 	end
 	label(chip, {
-		Text = "RZN-4.6",
+		Text = "RZN-4.7",
 		Font = Enum.Font.Code,
 		TextSize = 9,
 		TextColor3 = THEME.Muted,
@@ -1577,7 +1577,7 @@ local function runInlineLoading(onFinished)
 	}, overlay)
 
 	label(info, {
-		Text = "V4.6   •   BY " .. string.upper(CFG.Credit),
+		Text = "Version 4.7   •   BY " .. string.upper(CFG.Credit),
 		Font = Enum.Font.GothamMedium,
 		TextSize = 12,
 		TextColor3 = THEME.Muted,
@@ -1953,7 +1953,7 @@ local function runInlineLoading(onFinished)
 		setStatus(stage[2])
 
 		if i == 1 then
-			logBatch({ "boot: ryzen-kernel 4.6.0", "cpu: 8 cores online", "mem: heap allocated" })
+			logBatch({ "boot: ryzen-kernel 4.7.0", "cpu: 8 cores online", "mem: heap allocated" })
 			local t0 = os.clock()
 			while not game:IsLoaded() and os.clock() - t0 < 10 do
 				task.wait(0.1)
