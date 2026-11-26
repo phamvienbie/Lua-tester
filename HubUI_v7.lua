@@ -1,4 +1,4 @@
--- LocalScript: đặt vào StarterPlayer > StarterPlayerScripts
+-- THƯ VIỆN (không có demo). Dùng: local UI = loadstring(game:HttpGet("<url của file này>"))()
 -- Ryzen Hub v6 — Monochrome (đen/trắng) + Dynamic Island (tên + sóng nhạc) + notify Loading / Loaded successfully
 -- Phím RightCtrl (PC) hoặc chạm vào đảo (mobile) để ẩn/hiện
 
@@ -986,72 +986,4 @@ function UI.TabMethods.AddSection(tab, name, col)
 	return sec
 end
 
---------------------------------------------------------------------- DEMO
--- Cấu hình giao diện (chỉnh tại đây hoặc gọi win:SetTitle / SetSubtitle / SetLogo / SetKey / SetFooter sau khi tạo)
-local win = UI.new({
-	Title    = "Ryzen Hub",
-	Subtitle = "Blox Fruits",
-	Logo     = nil,                          -- 123456 | "rbxassetid://123456" | "https://.../logo.png" | nil = icon tia sét
-	Key      = Enum.KeyCode.RightControl,    -- phím ẩn/hiện
-	Footer   = nil,                          -- nil = tên người chơi
-})
-local loading = win:Loading("Loading", "Preparing interface")
-
-local function tg(name)
-	return function(v) win:Notify({Title = name, Text = v and "Enabled" or "Disabled", Kind = v and "success" or "error", Duration = 2}) end
-end
-
--- Home
-local home = win:AddTab("Home", "home")
-local s1 = home:AddSection("Server Stats", 1)
-s1:AddStat("Place Id", tostring(game.PlaceId))
-local setSession = s1:AddStat("Session Time", "0 Second(s)")
--- stat là object: setSession:SetName("...") / setSession:SetValue("...") / setSession("...")
-local s2 = home:AddSection("Local Stats", 2)
-s2:AddStat("Moon Status", "Phase 6/8")
-s2:AddStat("Mystic Island", "N/A")
-
-local t0 = os.time()
-task.spawn(function()
-	while win.Gui.Parent do
-		setSession(("%d Second(s)"):format(os.time() - t0))
-		task.wait(1)
-	end
-end)
-
--- Farm Settings
-local fs = win:AddTab("Farm Settings", "gear")
-local fsMain = fs:AddSection("Settings", 1)
-fsMain:AddToggle({Name = "Fast Attack", Callback = tg("Fast Attack")})
-fsMain:AddToggle({Name = "Bring Mob", Default = true, Callback = tg("Bring Mob")})
-
--- Farm
-local farm = win:AddTab("Farm", "sword")
-local mainSec = farm:AddSection("Main", 1)
-mainSec:AddToggle({Name = "Auto Farm Level", Default = true, Callback = tg("Auto Farm Level")})
-
-local boss = farm:AddSection("Boss", 1)
-boss:AddDropdown({Name = "Select Boss", Options = {"Boss A", "Boss B", "Boss C"}, Callback = function(v) print("Boss:", v) end})
-boss:AddToggle({Name = "Auto Farm Boss", Callback = tg("Auto Farm Boss")})
-boss:AddToggle({Name = "Auto Accept Boss Quest", Callback = tg("Auto Accept Boss Quest")})
-
-local fish = farm:AddSection("Fishing", 2)
-fish:AddDropdown({Name = "Select Bait", Options = {"Basic", "Good", "Epic"}, Callback = function(v) print("Bait:", v) end})
-fish:AddToggle({Name = "Auto Buy Bait", Callback = tg("Auto Buy Bait")})
-fish:AddToggle({Name = "Auto Sell Fish", Callback = tg("Auto Sell Fish")})
-fish:AddToggle({Name = "Auto Fishing", Callback = tg("Auto Fishing")})
-fish:AddButton({Name = "Test Notify", Callback = function()
-	win:Notify({Title = "Test", Text = "Dynamic Island is working", Kind = "info", Duration = 3})
-end})
-
-for _, d in ipairs({{"Bosses & Events", "target"}, {"Multi Farm", "layers"}, {"Quests", "flag"}}) do
-	local t = win:AddTab(d[1], d[2])
-	t:AddSection(d[1], 1):AddToggle({Name = "Demo " .. d[1], Callback = tg(d[1])})
-end
-
-win:Select(farm)
-
--- Giả lập thời gian tải -> "Loaded successfully" -> mở UI (silent = không đè lên thông báo)
-task.wait(1.8)
-loading:Success("Loaded successfully", "Interface is ready", 2.5)
-win:SetVisible(true, nil, true)
+return UI
