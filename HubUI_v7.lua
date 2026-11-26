@@ -49,6 +49,7 @@ local IDLE = Vector2.new(176, 40)        -- đảo thu gọn
 local NOTI = Vector2.new(300, 62)        -- đảo khi có thông báo
 local TOP = ISLAND_TOP + IDLE.Y + 8      -- vị trí đỉnh cửa sổ
 local NORMAL = Vector2.new(560, 330)     -- kích thước TỐI THIỂU của cửa sổ (đơn vị UI, trước khi scale)
+local MINSIZE = Vector2.new(340, 240)     -- cỡ nhỏ nhất khi kéo thu nhỏ bằng góc dưới phải
 local MAXW, MAXH = 720, 380              -- kích thước tối đa khi màn hình rộng
 local FOOT = 28                          -- chiều cao thanh footer
 local COMPACT = UIS.TouchEnabled and not UIS.KeyboardEnabled  -- mobile: tab nhỏ gọn hơn
@@ -145,6 +146,7 @@ local Draw = {
 	end,
 	info    = function(S, D, R) R(.5,.5,.84,2); D(.5,.31,.12); S(.5,.46,.5,.72,.12) end,
 	bolt    = function(S) S(.62,.1,.32,.54,.13); S(.32,.54,.66,.46,.13); S(.66,.46,.38,.9,.13) end,
+	grip    = function(S, D) D(.82,.82,.16); D(.82,.52,.16); D(.52,.82,.16) end,
 }
 
 local function DrawIcon(name, parent, size, col)
@@ -207,7 +209,7 @@ local LUCIDE_ALIAS = {
 }
 local DRAW_FALLBACK = { -- tên Lucide -> icon dự phòng
 	zap = "bolt", x = "cross", ["chevron-down"] = "chevron", copy = "restore", house = "home",
-	settings = "gear", swords = "sword", crosshair = "target",
+	settings = "gear", swords = "sword", crosshair = "target", ["move-diagonal-2"] = "grip",
 }
 local LUCIDE_SOURCES = {
 	"https://raw.githubusercontent.com/Footagesus/Icons/main/Main.lua",
@@ -543,6 +545,50 @@ function UI.new(cfg)
 		end
 	end)
 
+	local rsState
+
+	---------------------------------------------------------------- GÓC KÉO ĐỔI KÍCH THƯỚC (dưới phải)
+	local gsz = COMPACT and 36 or 26
+	local grip = new("Frame", {
+		Name = "ResizeGrip", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -2, 1, -2),
+		Size = UDim2.fromOffset(gsz, gsz), BackgroundTransparency = 1, Active = true, ZIndex = 20, Parent = body,
+	})
+	local gi = Icon("move-diagonal-2", grip, 12, C.Sub)
+	gi.Root.AnchorPoint = Vector2.new(1, 1); gi.Root.Position = UDim2.new(1, -5, 1, -5); gi.Root.ZIndex = 21
+	self._grip = grip
+	grip.MouseEnter:Connect(function() if not rsState then gi.SetColor(C.White) end end)
+	grip.MouseLeave:Connect(function() if not rsState then gi.SetColor(C.Sub) end end)
+	grip.InputBegan:Connect(function(i)
+		if self.Maximized then return end
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			rsState = {
+				p = i.Position, size = Vector2.new(main.Size.X.Offset, main.Size.Y.Offset), pos = main.Position,
+				left = main.AbsolutePosition.X, top = main.AbsolutePosition.Y,
+			}
+			gi.SetColor(C.White)
+			i.Changed:Connect(function()
+				if i.UserInputState == Enum.UserInputState.End then rsState = nil; gi.SetColor(C.Sub) end
+			end)
+		end
+	end)
+	UIS.InputChanged:Connect(function(i)
+		if not rsState then return end
+		if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
+		local fit, vp, st = self._fit, viewport(), rsState
+		local d = i.Position - st.p
+		local maxW = math.max(MINSIZE.X, (vp.X - 8 - st.left) / fit)
+		local maxH = math.max(MINSIZE.Y, (vp.Y - 8 - st.top) / fit)
+		local w = math.clamp(st.size.X + d.X / fit, MINSIZE.X, maxW)
+		local h = math.clamp(st.size.Y + d.Y / fit, MINSIZE.Y, maxH)
+		local a = Active[main]; if a and a.Size then a.Size:Cancel() end
+		-- main neo giữa theo chiều ngang -> dịch tâm nửa phần nở thêm để mép trái đứng yên
+		main.Size = UDim2.fromOffset(w, h)
+		main.Position = UDim2.new(st.pos.X.Scale, st.pos.X.Offset + (w - st.size.X) * fit / 2, st.pos.Y.Scale, st.pos.Y.Offset)
+		self._pos = main.Position
+		self._size = Vector2.new(w, h); self._userSize = self._size
+	end)
+	main:GetPropertyChangedSignal("Size"):Connect(function() self:_relayout() end)
+
 	---------------------------------------------------------------- THANH TAB
 	local tabBar = new("ScrollingFrame", {
 		Size = UDim2.new(1, -20, 0, 36), Position = UDim2.fromOffset(10, 52),
@@ -600,11 +646,11 @@ function UI.new(cfg)
 	}, {pill()})
 	local foot = label(cfg.Footer or lp.DisplayName, 10, C.Sub)
 	self._foot = foot
-	foot.AnchorPoint = Vector2.new(0, .5); foot.Position = UDim2.new(0, 26, .5, 0); foot.Size = UDim2.new(.6, 0, 1, 0)
+	foot.AnchorPoint = Vector2.new(0, .5); foot.Position = UDim2.new(0, 26, .5, 0); foot.Size = UDim2.new(1, -(26 + (UIS.KeyboardEnabled and 118 or 40)), 1, 0)
 	foot.ZIndex = 3; foot.Parent = footBar
 	if UIS.KeyboardEnabled then
 		local keycap = new("Frame", {
-			AnchorPoint = Vector2.new(1, .5), Size = UDim2.fromOffset(68, 18), Position = UDim2.new(1, -12, .5, 0),
+			AnchorPoint = Vector2.new(1, .5), Size = UDim2.fromOffset(68, 18), Position = UDim2.new(1, -34, .5, 0),
 			BackgroundColor3 = C.Item, BorderSizePixel = 0, ZIndex = 3, Parent = footBar,
 		}, {corner(5)})
 		local ks = stroke(C.Stroke, 1); ks.Parent = keycap
@@ -688,14 +734,44 @@ function UI.new(cfg)
 	if cam then
 		cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 			self._fit, self._size = layout()
+			if self._userSize then
+				local vp = viewport()
+				self._size = Vector2.new(
+					math.clamp(self._userSize.X, MINSIZE.X, math.max(MINSIZE.X, (vp.X - 16) / self._fit)),
+					math.clamp(self._userSize.Y, MINSIZE.Y, math.max(MINSIZE.Y, (vp.Y - TOP - 8) / self._fit)))
+			end
 			if self.Open then tw(scale, {Scale = self._fit}, .3) end
 			local sz = self.Maximized and self:_maxSize() or self._size
 			tw(self.Main, {Size = UDim2.fromOffset(sz.X, sz.Y)}, .3)
 		end)
 	end
 
+	self:_relayout()
 	if cfg.Logo then self:SetLogo(cfg.Logo) end
 	return self
+end
+
+--------------------------------------------------------------------- TỰ CĂN CHỈNH THEO CỠ CỬA SỔ
+-- Hẹp (< 470): gộp 2 cột thành 1 cột cuộn; rộng: trả về 2 cột. Cửa sổ quá hẹp thì ẩn subtitle.
+function UI:_arrange(tab)
+	local single = self._single
+	local c1, c2 = tab.Columns[1], tab.Columns[2]
+	c1.Size = single and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -5, 1, 0)
+	c2.Visible = not single
+	for i, s in ipairs(tab._secs or {}) do
+		s.box.LayoutOrder = (single and s.col == 2) and (1000 + i) or i
+		s.box.Parent = (single or s.col ~= 2) and c1 or c2
+	end
+end
+
+function UI:_relayout()
+	local w = self.Main.Size.X.Offset
+	local single = w < 470
+	if self._single ~= single then
+		self._single = single
+		for _, tab in ipairs(self.Tabs) do self:_arrange(tab) end
+	end
+	if self._sub then self._sub.Visible = self._sub.Text ~= "" and w >= 420 end
 end
 
 --------------------------------------------------------------------- ĐẢO: chuyển trạng thái
@@ -877,6 +953,7 @@ function UI:ToggleMax()
 		tw(main, {Size = UDim2.fromOffset(self._size.X, self._size.Y), Position = self._pos}, .5, Enum.EasingStyle.Quint)
 	end
 	self._maxCtl.SetIcon(self.Maximized and "copy" or "square")
+	self._grip.Visible = not self.Maximized
 end
 
 --------------------------------------------------------------------- CHỈNH TỪ BÊN NGOÀI
@@ -886,7 +963,7 @@ function UI:SetTitle(t)
 end
 function UI:SetSubtitle(t)
 	t = tostring(t or "")
-	self._sub.Text = t; self._sub.Visible = t ~= ""
+	self._sub.Text = t; self:_relayout()
 end
 function UI:SetLogo(src) -- id / rbxassetid / URL; nil = icon mặc định
 	self._logoTok = (self._logoTok or 0) + 1
@@ -1026,6 +1103,9 @@ function UI.TabMethods.AddSection(tab, name, col)
 	new("Frame", {Size = UDim2.fromOffset(5, 5), Position = UDim2.fromOffset(1, 7), BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = head}, {pill()})
 	local hl = label(string.upper(name), 10, C.Text, F.Bold); hl.Position = UDim2.fromOffset(14, 0); hl.Size = UDim2.new(1, -14, 1, 0); hl.Parent = head
 	sec.Box = box
+	tab._secs = tab._secs or {}
+	table.insert(tab._secs, {box = box, col = col or 1})
+	if tab.Window._single then tab.Window:_arrange(tab) end
 	function sec:SetName(n) hl.Text = string.upper(tostring(n)) end
 
 	-- TOGGLE
