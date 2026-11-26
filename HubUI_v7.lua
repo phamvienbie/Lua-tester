@@ -1,5 +1,5 @@
 -- THƯ VIỆN (không có demo). Dùng: local UI = loadstring(game:HttpGet("<url của file này>"))()
--- Ryzen Hub v6 — Monochrome (đen/trắng) + Dynamic Island (tên + sóng nhạc) + notify Loading / Loaded successfully
+-- Ryzen Hub v8 (căn chỉnh lại UI cho màn hình ngang/điện thoại) — Monochrome (đen/trắng) + Dynamic Island (tên + sóng nhạc) + notify Loading / Loaded successfully
 -- Phím RightCtrl (PC) hoặc chạm vào đảo (mobile) để ẩn/hiện
 
 local Players = game:GetService("Players")
@@ -48,7 +48,10 @@ local ISLAND_TOP = 12                    -- cách mép trên màn hình
 local IDLE = Vector2.new(176, 40)        -- đảo thu gọn
 local NOTI = Vector2.new(300, 62)        -- đảo khi có thông báo
 local TOP = ISLAND_TOP + IDLE.Y + 8      -- vị trí đỉnh cửa sổ
-local NORMAL = Vector2.new(560, 330)     -- kích thước cửa sổ (tự co lại trên màn hình nhỏ)
+local NORMAL = Vector2.new(560, 330)     -- kích thước TỐI THIỂU của cửa sổ (đơn vị UI, trước khi scale)
+local MAXW, MAXH = 720, 380              -- kích thước tối đa khi màn hình rộng
+local FOOT = 28                          -- chiều cao thanh footer
+local COMPACT = UIS.TouchEnabled and not UIS.KeyboardEnabled  -- mobile: tab nhỏ gọn hơn
 
 --------------------------------------------------------------------- HELPERS
 local function new(class, props, children)
@@ -109,7 +112,7 @@ local function shine(strokeObj, speed, base)
 	return g
 end
 
---------------------------------------------------------------------- ICON TỰ VẼ (Frame + xoay, không cần ảnh/font)
+--------------------------------------------------------------------- ICON DỰ PHÒNG (tự vẽ, chỉ dùng khi Lucide chưa tải được)
 local Draw = {
 	check   = function(S) S(.22,.52,.42,.72,.13); S(.42,.72,.78,.30,.13) end,
 	cross   = function(S) S(.26,.26,.74,.74,.13); S(.74,.26,.26,.74,.13) end,
@@ -144,7 +147,7 @@ local Draw = {
 	bolt    = function(S) S(.62,.1,.32,.54,.13); S(.32,.54,.66,.46,.13); S(.66,.46,.38,.9,.13) end,
 }
 
-local function Icon(name, parent, size, col)
+local function DrawIcon(name, parent, size, col)
 	col = col or C.Text
 	local root = new("Frame", {Name = "Icon_" .. name, Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, Parent = parent})
 	local parts = {}
@@ -193,6 +196,105 @@ local function Icon(name, parent, size, col)
 	return api
 end
 
+--------------------------------------------------------------------- ICON LUCIDE (https://lucide.dev)
+-- Dùng: Icon("house"), AddTab("Home", "house"), "lucide:swords" ... (tên đúng như trên lucide.dev)
+-- Tên cũ vẫn chạy nhờ bảng đổi tên bên dưới (home -> house, gear -> settings ...)
+-- Tự tải thư viện icon Lucide lúc chạy (cần HttpGet). Muốn dùng module riêng: getgenv().LucideIcons = <module có .Icon(name)>
+local LUCIDE_ALIAS = {
+	home = "house", gear = "settings", sword = "swords", bolt = "zap", cross = "x", chevron = "chevron-down",
+	target = "crosshair", restore = "copy", minus = "minus", square = "square", check = "check", info = "info",
+	layers = "layers", flag = "flag",
+}
+local DRAW_FALLBACK = { -- tên Lucide -> icon dự phòng
+	zap = "bolt", x = "cross", ["chevron-down"] = "chevron", copy = "restore", house = "home",
+	settings = "gear", swords = "sword", crosshair = "target",
+}
+local LUCIDE_SOURCES = {
+	"https://raw.githubusercontent.com/Footagesus/Icons/main/Main.lua",
+}
+local LucideLib, LucideState, LucideWait, LucideCache = nil, "idle", {}, {}
+
+local function lucideInit()
+	if LucideState ~= "idle" then return end
+	LucideState = "loading"
+	task.spawn(function()
+		local env = (getgenv and getgenv()) or _G
+		local lib = type(env.LucideIcons) == "table" and env.LucideIcons or nil
+		if not lib then
+			for _, url in ipairs(LUCIDE_SOURCES) do
+				local ok, res = pcall(function() return loadstring(game:HttpGet(url))() end)
+				if ok and type(res) == "table" and res.Icon then lib = res break end
+			end
+		end
+		if lib and lib.SetIconsType then pcall(lib.SetIconsType, "lucide") end
+		LucideLib = lib
+		LucideState = lib and "ready" or "failed"
+		if not lib then warn("[RyzenHub] cannot load Lucide icons, using fallback icons") end
+		for _, cb in ipairs(LucideWait) do task.defer(cb) end
+		LucideWait = {}
+	end)
+end
+
+local function lucideWhenReady(cb)
+	if LucideState == "ready" or LucideState == "failed" then return cb() end
+	table.insert(LucideWait, cb)
+	lucideInit()
+end
+
+local function lucideLookup(name)
+	if LucideState ~= "ready" then return nil end
+	name = tostring(name):gsub("^lucide:", "")
+	name = LUCIDE_ALIAS[name] or name
+	local c = LucideCache[name]
+	if c ~= nil then return c or nil end
+	local ok, a, b = pcall(function() return LucideLib.Icon(name, "lucide") end)
+	local data
+	if ok and type(a) == "table" then
+		local meta = type(a[2]) == "table" and a[2] or a
+		local img = a[1] or a.Image or a.Id
+		if type(img) == "number" then img = "rbxassetid://" .. img end
+		if type(img) == "string" and img ~= "" then
+			data = {Image = img, Pos = meta.ImageRectPosition or meta.ImageRectOffset, Size = meta.ImageRectSize}
+		end
+	elseif ok and type(a) == "string" and typeof(b) == "table" then
+		data = {Image = a, Pos = b.ImageRectPosition or b.ImageRectOffset, Size = b.ImageRectSize}
+	end
+	LucideCache[name] = data or false
+	if not data then warn("[RyzenHub] Lucide icon not found:", name) end
+	return data
+end
+
+local function Icon(name, parent, size, col)
+	col = col or C.Text
+	local root = new("Frame", {Name = "Icon_" .. name, Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, Parent = parent})
+	local img = new("ImageLabel", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ImageColor3 = col,
+		ScaleType = Enum.ScaleType.Fit, Visible = false, Parent = root,
+	})
+	local fb, cur = nil, col
+	lucideWhenReady(function()
+		if not root.Parent then return end
+		local d = lucideLookup(name)
+		if d then
+			img.Image = d.Image
+			if d.Pos then img.ImageRectOffset = d.Pos end
+			if d.Size then img.ImageRectSize = d.Size end
+			img.Visible = true
+		else
+			local key = DRAW_FALLBACK[name] or name
+			if Draw[key] then fb = DrawIcon(key, root, size, cur) end
+		end
+	end)
+	local api = {Root = root}
+	function api.SetColor(c)
+		cur = c
+		tw(img, {ImageColor3 = c}, .18)
+		if fb then fb.SetColor(c) end
+	end
+	return api
+end
+lucideInit()
+
 --------------------------------------------------------------------- ẢNH: asset id / rbxassetid / URL
 -- Nhận: 123456 | "123456" | "rbxassetid://123456" | "https://.../logo.png" (URL cần executor có writefile + getcustomasset)
 local ImgCache = {}
@@ -226,9 +328,11 @@ local function resolveAsset(src, cb)
 	end)
 end
 
--- icon: tên icon có sẵn (home, gear, sword...) hoặc ảnh (id / URL)
+-- icon: tên Lucide (house, settings, swords... xem lucide.dev) hoặc ảnh (id / URL)
 local function AnyIcon(spec, parent, size, col)
-	if type(spec) == "string" and Draw[spec] then return Icon(spec, parent, size, col) end
+	if type(spec) == "string" and spec ~= "" and not spec:match("^%d+$") and not spec:match("^rbxasset") and not spec:match("^https?://") then
+		return Icon(spec, parent, size, col)
+	end
 	local img = new("ImageLabel", {
 		Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, ImageColor3 = col or C.Text,
 		ScaleType = Enum.ScaleType.Fit, Parent = parent,
@@ -289,15 +393,20 @@ end
 local UI = {}
 UI.__index = UI
 
-local KIND_ICON = {success = "check", error = "cross", info = "info"}
+local KIND_ICON = {success = "check", error = "x", info = "info"}
 
 local function viewport()
 	local cam = workspace.CurrentCamera
 	return cam and cam.ViewportSize or Vector2.new(1280, 720)
 end
-local function fitScale()
+-- Scale theo CHIỀU CAO màn hình, phần chiều ngang dư thì nới rộng cửa sổ (không để thừa khoảng trống / không cắt tab)
+local function layout()
 	local vp = viewport()
-	return math.clamp(math.min((vp.X - 16) / NORMAL.X, (vp.Y - TOP - 8) / NORMAL.Y, 1), .5, 1)
+	local availH = vp.Y - TOP - 8
+	local s = math.clamp(math.min(availH / NORMAL.Y, (vp.X - 16) / NORMAL.X, 1), .5, 1)
+	local w = math.clamp((vp.X - 16) / s, NORMAL.X, MAXW)
+	local h = math.clamp(availH / s, NORMAL.Y, MAXH)
+	return s, Vector2.new(w, h)
 end
 
 function UI.new(cfg)
@@ -305,9 +414,10 @@ function UI.new(cfg)
 	local self = setmetatable({
 		Tabs = {}, Current = nil, Open = false, Maximized = false,
 		_token = 0, _vis = 0, _pending = {}, _holding = false, _wasMin = false,
-		_imode = "idle", _dotTok = 0, _amp = 0.6, _fit = fitScale(), _waves = {},
+		_imode = "idle", _dotTok = 0, _amp = 0.6, _waves = {},
 	}, UI)
 
+	self._fit, self._size = layout()
 	local brand = string.upper(cfg.Title or "Hub")
 	self._key = keyOf(cfg.Key)
 
@@ -338,7 +448,7 @@ function UI.new(cfg)
 	---------------------------------------------------------------- MAIN WINDOW
 	local main = new("Frame", {
 		Name = "Main", AnchorPoint = Vector2.new(.5, 0), Position = UDim2.new(.5, 0, 0, TOP),
-		Size = UDim2.fromOffset(NORMAL.X, NORMAL.Y), BackgroundTransparency = 1, Visible = false, Parent = gui,
+		Size = UDim2.fromOffset(self._size.X, self._size.Y), BackgroundTransparency = 1, Visible = false, Parent = gui,
 	})
 	local scale = new("UIScale", {Scale = self._fit, Parent = main})
 
@@ -371,7 +481,7 @@ function UI.new(cfg)
 		BackgroundTransparency = .9, BorderSizePixel = 0, ZIndex = 3, Parent = bar,
 	})
 	local logo = new("Frame", {Size = UDim2.fromOffset(22, 22), Position = UDim2.fromOffset(11, 10), BackgroundColor3 = C.ItemHov, BorderSizePixel = 0, ZIndex = 3, Parent = bar}, {corner(5)})
-	local li = Icon("bolt", logo, 12, C.White); li.Root.Position = UDim2.fromOffset(5, 5); li.Root.ZIndex = 4
+	local li = Icon("zap", logo, 12, C.White); li.Root.Position = UDim2.fromOffset(5, 5); li.Root.ZIndex = 4
 	local logoImg = new("ImageLabel", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit, ZIndex = 4, Visible = false, Parent = logo}, {corner(5)})
 	self._logo, self._logoImg, self._logoIcon = logo, logoImg, li
 
@@ -415,7 +525,7 @@ function UI.new(cfg)
 	end
 	control(1, "minus", false, function() self:SetVisible(false, "min") end)
 	self._maxCtl = control(2, "square", false, function() self:ToggleMax() end)
-	control(3, "cross", true, function() self:SetVisible(false) end)
+	control(3, "x", true, function() self:SetVisible(false) end)
 
 	-- kéo cửa sổ (chuột + cảm ứng)
 	local dragging, dragStart, startPos
@@ -448,24 +558,59 @@ function UI.new(cfg)
 	local ts = stroke(C.Stroke, 1); ts.Transparency = .3; ts.Parent = tabBar
 	self.TabBar = tabBar
 
+	-- mờ 2 mép khi còn tab bị che (báo hiệu có thể vuốt)
+	local function edge(right)
+		local f = new("Frame", {
+			Size = UDim2.fromOffset(26, 36), AnchorPoint = Vector2.new(right and 1 or 0, 0),
+			Position = right and UDim2.new(1, -10, 0, 52) or UDim2.fromOffset(10, 52),
+			BackgroundColor3 = C.Panel2, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3, Parent = body,
+		}, {corner(6)})
+		new("UIGradient", {
+			Transparency = NumberSequence.new(right and 1 or 0, right and 0 or 1), Parent = f,
+		})
+		return f
+	end
+	local edgeL, edgeR = edge(false), edge(true)
+	local function updEdges()
+		local k = tabBar.AbsoluteSize.Y / 36
+		if k <= 0 then return end
+		local maxX = math.max(0, (tabBar.AbsoluteCanvasSize.X - tabBar.AbsoluteSize.X) / k)
+		local x = tabBar.CanvasPosition.X
+		tw(edgeL, {BackgroundTransparency = x > 3 and 0 or 1}, .15)
+		tw(edgeR, {BackgroundTransparency = x < maxX - 3 and 0 or 1}, .15)
+	end
+	tabBar:GetPropertyChangedSignal("CanvasPosition"):Connect(updEdges)
+	tabBar:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(updEdges)
+	tabBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(updEdges)
+
 	self.Content = new("Frame", {
-		Size = UDim2.new(1, -20, 1, -124), Position = UDim2.fromOffset(10, 96),
+		Size = UDim2.new(1, -20, 1, -(96 + FOOT + 4)), Position = UDim2.fromOffset(10, 96),
 		BackgroundTransparency = 1, ClipsDescendants = true, Parent = body,
 	})
 
-	-- Footer
-	new("Frame", {Size = UDim2.fromOffset(5, 5), Position = UDim2.new(0, 14, 1, -17), BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = body}, {pill()})
+	-- Footer: thanh riêng, tách khỏi nội dung, căn giữa theo chiều dọc
+	local footBar = new("Frame", {
+		Name = "Footer", Size = UDim2.new(1, 0, 0, FOOT), Position = UDim2.new(0, 0, 1, -FOOT),
+		BackgroundColor3 = C.Black, BackgroundTransparency = .4, BorderSizePixel = 0, ZIndex = 2, Parent = body,
+	})
+	new("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = C.White, BackgroundTransparency = .92, BorderSizePixel = 0, ZIndex = 3, Parent = footBar})
+	new("Frame", {
+		AnchorPoint = Vector2.new(0, .5), Size = UDim2.fromOffset(5, 5), Position = UDim2.new(0, 14, .5, 0),
+		BackgroundColor3 = C.White, BorderSizePixel = 0, ZIndex = 3, Parent = footBar,
+	}, {pill()})
 	local foot = label(cfg.Footer or lp.DisplayName, 10, C.Sub)
 	self._foot = foot
-	foot.Position = UDim2.new(0, 26, 1, -24); foot.Size = UDim2.new(0.5, 0, 0, 20); foot.Parent = body
+	foot.AnchorPoint = Vector2.new(0, .5); foot.Position = UDim2.new(0, 26, .5, 0); foot.Size = UDim2.new(.6, 0, 1, 0)
+	foot.ZIndex = 3; foot.Parent = footBar
 	if UIS.KeyboardEnabled then
 		local keycap = new("Frame", {
-			Size = UDim2.fromOffset(68, 18), Position = UDim2.new(1, -80, 1, -23), BackgroundColor3 = C.Item, BorderSizePixel = 0, Parent = body,
+			AnchorPoint = Vector2.new(1, .5), Size = UDim2.fromOffset(68, 18), Position = UDim2.new(1, -12, .5, 0),
+			BackgroundColor3 = C.Item, BorderSizePixel = 0, ZIndex = 3, Parent = footBar,
 		}, {corner(5)})
 		local ks = stroke(C.Stroke, 1); ks.Parent = keycap
 		local key = label(keyName(self._key), 9, C.Sub); key.TextXAlignment = Enum.TextXAlignment.Center
 		self._keyLabel = key
-		key.Size = UDim2.fromScale(1, 1); key.Parent = keycap
+		key.Size = UDim2.fromScale(1, 1); key.ZIndex = 4; key.Parent = keycap
 	end
 
 	---------------------------------------------------------------- DYNAMIC ISLAND (tên + sóng nhạc)
@@ -542,8 +687,10 @@ function UI.new(cfg)
 	local cam = workspace.CurrentCamera
 	if cam then
 		cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-			self._fit = fitScale()
+			self._fit, self._size = layout()
 			if self.Open then tw(scale, {Scale = self._fit}, .3) end
+			local sz = self.Maximized and self:_maxSize() or self._size
+			tw(self.Main, {Size = UDim2.fromOffset(sz.X, sz.Y)}, .3)
 		end)
 	end
 
@@ -710,21 +857,26 @@ function UI:SetVisible(v, how, silent)
 	end
 end
 
+function UI:_maxSize()
+	local vp = viewport()
+	local w = math.max(self._size.X, math.min(900, (vp.X - 16) / self._fit))
+	local h = math.max(self._size.Y, (vp.Y - TOP - 8) / self._fit)
+	return Vector2.new(w, h)
+end
+
 function UI:ToggleMax()
 	self.Maximized = not self.Maximized
-	local vp = viewport()
 	local main = self.Main
 	if self.Maximized then
 		self._preMaxPos = self._pos
-		local w = math.min(840, (vp.X - 16) / self._fit)
-		local h = math.max(NORMAL.Y, (vp.Y - TOP - 8) / self._fit)
+		local sz = self:_maxSize()
 		self._pos = UDim2.new(.5, 0, 0, TOP)
-		tw(main, {Size = UDim2.fromOffset(w, h), Position = self._pos}, .5, Enum.EasingStyle.Quint)
+		tw(main, {Size = UDim2.fromOffset(sz.X, sz.Y), Position = self._pos}, .5, Enum.EasingStyle.Quint)
 	else
 		self._pos = self._preMaxPos or UDim2.new(.5, 0, 0, TOP)
-		tw(main, {Size = UDim2.fromOffset(NORMAL.X, NORMAL.Y), Position = self._pos}, .5, Enum.EasingStyle.Quint)
+		tw(main, {Size = UDim2.fromOffset(self._size.X, self._size.Y), Position = self._pos}, .5, Enum.EasingStyle.Quint)
 	end
-	self._maxCtl.SetIcon(self.Maximized and "restore" or "square")
+	self._maxCtl.SetIcon(self.Maximized and "copy" or "square")
 end
 
 --------------------------------------------------------------------- CHỈNH TỪ BÊN NGOÀI
@@ -758,7 +910,7 @@ end
 function UI:Destroy() self.Gui:Destroy() end
 
 --------------------------------------------------------------------- TAB
--- AddTab("Home", "home")  hoặc  AddTab({Name = "Home", Icon = "rbxassetid://123" | "https://.../i.png"})
+-- AddTab("Home", "house")  hoặc  AddTab({Name = "Home", Icon = "rbxassetid://123" | "https://.../i.png"})
 function UI:AddTab(name, icon)
 	if type(name) == "table" then name, icon = name.Name or name.Title or "Tab", name.Icon end
 	local tab = {Window = self, Name = name}
@@ -769,14 +921,14 @@ function UI:AddTab(name, icon)
 		Text = "", Parent = self.TabBar,
 	}, {
 		corner(4),
-		new("UIPadding", {PaddingLeft = UDim.new(0, 11), PaddingRight = UDim.new(0, 11)}),
-		new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder}),
+		new("UIPadding", {PaddingLeft = UDim.new(0, COMPACT and 9 or 11), PaddingRight = UDim.new(0, COMPACT and 9 or 11)}),
+		new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, COMPACT and 5 or 6), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder}),
 	})
 	local ic
 	if icon and icon ~= "" then
-		ic = AnyIcon(icon, btn, 14, C.Sub); ic.Root.LayoutOrder = 1
+		ic = AnyIcon(icon, btn, COMPACT and 13 or 14, C.Sub); ic.Root.LayoutOrder = 1
 	end
-	local txt = label(name, 11, C.Sub, F.Bold)
+	local txt = label(name, COMPACT and 10 or 11, C.Sub, F.Bold)
 	txt.Size = UDim2.new(0, 0, 1, 0); txt.AutomaticSize = Enum.AutomaticSize.X; txt.LayoutOrder = 2; txt.Parent = btn
 	tab.Button, tab.Text, tab.Icon = btn, txt, ic
 
@@ -792,8 +944,13 @@ function UI:AddTab(name, icon)
 		return new("ScrollingFrame", {
 			Size = UDim2.new(0.5, -5, 1, 0), Position = UDim2.new(x, x == 0 and 0 or 5, 0, 0),
 			BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, ScrollBarImageColor3 = C.Sub,
+			ScrollBarImageTransparency = .4, VerticalScrollBarInset = Enum.ScrollBarInset.None,
 			CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = page,
-		}, {list(8)})
+		}, {
+			list(8),
+			-- 1px đệm 3 phía để viền (stroke) không bị cắt; đệm dưới để mục cuối không dính mép
+			new("UIPadding", {PaddingTop = UDim.new(0, 1), PaddingLeft = UDim.new(0, 1), PaddingRight = UDim.new(0, 1), PaddingBottom = UDim.new(0, 8)}),
+		})
 	end
 	tab.Page = page
 	tab.Columns = {column(0), column(0.5)}
@@ -824,6 +981,21 @@ function UI:Select(tab)
 		end
 	end
 	self.Current = tab
+	self:_reveal(tab)
+end
+
+-- cuộn thanh tab để tab đang chọn nằm giữa (không bị che)
+function UI:_reveal(tab)
+	local bar, b = self.TabBar, tab.Button
+	task.defer(function()
+		if not (bar.Parent and b.Parent) then return end
+		local k = bar.AbsoluteSize.Y / 36
+		if k <= 0 then return end
+		local left = (b.AbsolutePosition.X - bar.AbsolutePosition.X) / k + bar.CanvasPosition.X
+		local w, view = b.AbsoluteSize.X / k, bar.AbsoluteSize.X / k
+		local maxX = math.max(0, bar.AbsoluteCanvasSize.X / k - view)
+		tw(bar, {CanvasPosition = Vector2.new(math.clamp(left - (view - w) / 2, 0, maxX), 0)}, .3)
+	end)
 end
 
 --------------------------------------------------------------------- SECTION
@@ -844,7 +1016,7 @@ function UI.TabMethods.AddSection(tab, name, col)
 	local function nextOrder() order += 1; return order end
 
 	local box = new("Frame", {
-		Size = UDim2.new(1, -2, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = tab.Columns[col or 1],
 	}, {corner(6), pad(9), list(6)})
 	grad(box, C.Panel1, C.Panel2, 90)
@@ -902,7 +1074,7 @@ function UI.TabMethods.AddSection(tab, name, col)
 		}, {corner(5)})
 		local hs = stroke(C.Stroke, 1); hs.Parent = hd
 		local val = label(cur, 11, C.Sub); val.Position = UDim2.fromOffset(12, 0); val.Size = UDim2.new(1, -40, 1, 0); val.Parent = hd
-		local arrow = Icon("chevron", hd, 12, C.Sub)
+		local arrow = Icon("chevron-down", hd, 12, C.Sub)
 		arrow.Root.AnchorPoint = Vector2.new(.5, .5); arrow.Root.Position = UDim2.new(1, -18, .5, 0)
 
 		local n = #options
