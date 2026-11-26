@@ -22,7 +22,7 @@ local Config = {
     RedeemTimeout = 60,
     SelectWeapon = "Melee",
     AutoHaki = true,
-    FarmHeight = 20,
+    FarmHeight = 12,          -- Hạ độ cao farm mặc định xuống 12 (trước là 20) để đánh chuẩn hơn
     TweenSpeed = 170,
     MaxTweenSpeed = 220,
     SafeHealthPercent = 25,
@@ -62,7 +62,7 @@ local Config = {
 
     -- Boss ưu tiên: Dough King > rip_indra > Darkbeard
     AutoBoss = true,
-    BossHeight = 18,
+    BossHeight = 14,          -- Hạ độ cao đánh Boss xuống 14 (trước là 18)
 
     -- Quest vật phẩm Sea 3 (khôi phục từ bản gốc): Yama / Tushita / CDK / Godhuman / SanguineArt
     AutoQuestItems = true,
@@ -113,17 +113,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 -- ==========================================
--- CẤU HÌNH TỐC ĐỘ CAO & ỔN ĐỊNH
+-- CẤU HÌNH FAST ATTACK TỐC ĐỘ CAO & ỔN ĐỊNH
 -- ==========================================
 _G.FastAttackHook = true
-_G.AttackDelay = 0.052        -- Nhanh (~0.045 - 0.07); nếu server/ping cao thì tăng lên 0.075 - 0.09
-_G.AttackRange = 120           -- Tầm đánh hợp lý để tránh hụt hit/bỏ qua dame
-_G.MaxBatchTargets = 6        -- Số mục tiêu gom tối đa mỗi đợt để gọn và nhanh
+_G.AttackDelay = 0.055        -- Nhịp đánh ổn định, tránh rớt hit / kick
+_G.AttackRange = 65           -- Tầm đánh chuẩn khớp với hitbox vũ khí
+_G.MaxBatchTargets = 8        -- Số mục tiêu gom tối đa mỗi đợt
 _G.AutoBuso = true            -- Tự bật Buso/Haki vũ trang
 
--- ==========================================
--- CACHE REMOTE ĐỂ TĂNG TỐC ĐỘ THỰC THI
--- ==========================================
 local CachedRemotes = {
 	RegAttack = nil,
 	RegHit = nil,
@@ -155,9 +152,6 @@ end
 
 refreshRemotes(true)
 
--- ==========================================
--- HÀM TÌM MỤC TIÊU NHANH
--- ==========================================
 local function findFastTargetPart(hrp, range)
 	local enemies = workspace:FindFirstChild("Enemies")
 	if not enemies then return nil end
@@ -222,32 +216,35 @@ local function getBatchTargets(hrp, range, maxCount)
 end
 
 -- ==========================================
--- HOOK __NAMECALL AN TOÀN (CHỐNG TRÙNG)
+-- HOOK __NAMECALL AN TOÀN (FIX LỖI CHECKCALLER)
 -- ==========================================
 if not getgenv().HiruFastAttackHookedV3 then
 	getgenv().HiruFastAttackHookedV3 = true
 
 	pcall(function()
 		local mt = getrawmetatable(game)
-		if mt and hookmetamethod and not checkcaller then
+		if mt and hookmetamethod then
 			local oldNamecall = mt.__namecall
 			setreadonly(mt, false)
 
 			mt.__namecall = newcclosure(function(self, ...)
-				if _G.FastAttackHook then
+				if _G.FastAttackHook and not checkcaller() then
 					local method = getnamecallmethod()
 					if method == "FireServer" and tostring(self) == "RE/RegisterHit" then
 						local args = { ... }
-						if #args == 0 or args[1] == nil then
-							local char = LocalPlayer.Character
-							local hrp = char and char:FindFirstChild("HumanoidRootPart")
-							if hrp then
-								local targetPart = findFastTargetPart(hrp, tonumber(_G.AttackRange) or 85)
-								if targetPart then
-									args[1] = targetPart
-									args[2] = args[2] or {}
-									return oldNamecall(self, unpack(args))
+						local char = LocalPlayer.Character
+						local hrp = char and char:FindFirstChild("HumanoidRootPart")
+						if hrp then
+							local range = tonumber(_G.AttackRange) or 65
+							local targets = getBatchTargets(hrp, range, tonumber(_G.MaxBatchTargets) or 8)
+							if #targets > 0 then
+								args[1] = targets[1].part
+								local extra = {}
+								for i = 2, #targets do
+									extra[i - 1] = { targets[i].mob, targets[i].part }
 								end
+								args[2] = extra
+								return oldNamecall(self, unpack(args))
 							end
 						end
 					end
@@ -288,15 +285,15 @@ local function getEquippedTool(char)
 end
 
 -- ==========================================
--- VÒNG LẶP ĐÁNH TỐC ĐỘ CAO CÓ KHÓA CHỐNG CHỒNG
+-- VÒNG LẶP FAST ATTACK (CÓ RESET COMBO CHỐNG KẸT HIT)
 -- ==========================================
 local isAttacking = false
 
 task.spawn(function()
 	while true do
-		local delayTime = tonumber(_G.AttackDelay) or 0.052
-		if delayTime < 0.035 then
-			delayTime = 0.035
+		local delayTime = tonumber(_G.AttackDelay) or 0.055
+		if delayTime < 0.04 then
+			delayTime = 0.04
 		end
 		task.wait(delayTime)
 
@@ -318,13 +315,14 @@ task.spawn(function()
 
 			refreshRemotes(false)
 
-			local range = tonumber(_G.AttackRange) or 85
-			local maxBatch = tonumber(_G.MaxBatchTargets) or 6
+			local range = tonumber(_G.AttackRange) or 65
+			local maxBatch = tonumber(_G.MaxBatchTargets) or 8
 			local targets = getBatchTargets(hrp, range, maxBatch)
 			if #targets == 0 then return end
 
 			checkBuso(char)
 
+			-- Gọi Activate + Remote chuẩn của Blox Fruits
 			pcall(function()
 				tool:Activate()
 			end)
@@ -354,18 +352,14 @@ task.spawn(function()
 end)
 
 --// ===================== SERVICES =====================
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local VirtualUser = game:GetService("VirtualUser")
 local Workspace = game:GetService("Workspace")
 
-local LocalPlayer = Players.LocalPlayer
 local CommF_ = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 
--- Hàm của executor (có thể không tồn tại -> luôn kiểm tra trước khi gọi)
 local fireTouch = firetouchinterest
 local fireClick = fireclickdetector
 local setHidden = sethiddenproperty
@@ -392,7 +386,6 @@ local function Loop(interval, fn, name)
     end)
 end
 
--- Gọi remote an toàn, trả về kết quả hoặc nil
 local function Invoke(...)
     local args = table.pack(...)
     local ok, res = pcall(function()
@@ -402,7 +395,6 @@ local function Invoke(...)
     return nil
 end
 
--- Cache kết quả gọi tốn remote
 local CacheStore = {}
 local function Cached(key, ttl, fn)
     local e = CacheStore[key]
@@ -412,7 +404,6 @@ local function Cached(key, ttl, fn)
     return v
 end
 
--- Tự chọn team nếu chưa chọn (lần đầu vào game)
 if not LocalPlayer.Team then
     Invoke("SetTeam", Config.Team)
     for _ = 1, 40 do
@@ -428,7 +419,6 @@ local function Level() return Data.Level.Value end
 local function Beli() return Data.Beli.Value end
 local function Fragments() return Data.Fragments.Value end
 
--- Xác định Sea
 local function SeaOfLevel(lv) return lv < 700 and 1 or (lv < 1500 and 2 or 3) end
 local PlaceId = game.PlaceId
 local Sea = (PlaceId == 2753915549 and 1) or (PlaceId == 4442272183 and 2) or (PlaceId == 7449423635 and 3) or 0
@@ -451,10 +441,14 @@ local function SetStatus(text) State.Task = text end
 if Config.AutoRedeemCode and not genv.__KaitunRedeemed then
     genv.__KaitunRedeemed = true
     local Codes = Config.RedeemCodes or {
-        "EASTEREXP", "LIGHTNINGABUSE", "1LOSTADMIN", "Sub2OfficialNoobie", "SUB2GAMERROBOT_EXP1",
-        "EXP_5B", "3BVISITS", "UPD16", "UPD15", "UPD14", "UPDATE11", "UPDATE10", "ShutDownFix2",
-        "1BILLION", "2BILLION", "XMASEXP", "THIRDSEA", "CONTROL", "STAFFBATTLE", "youtuber_shipbattle",
+        "Sub2OfficialNoobie", "SUB2GAMERROBOT_EXP1", "Sub2Fer999", "Enyu_is_Pro",
+        "Magicbus", "JCWK", "Starcodeheo", "Bluxxy", "THEGREATACE",
+        "SUB2NOOBMASTER123", "Sub2Daigrock", "Axiore", "TantaiGaming",
+        "StrawHatMaine", "Sub2CaptainMaui", "kittgaming", "KittGaming",
+        "SUB2GAMERROBOT_RESET1", "Sub2UncleKizaru", "Kitt_Reset",
+        "Bignews", "fudd10_v2", "Fudd10", "Chandler"
     }
+
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
     local redeem = remotes and remotes:FindFirstChild("Redeem")
     if redeem then
@@ -471,8 +465,6 @@ if Config.AutoRedeemCode and not genv.__KaitunRedeemed then
             while not done and tick() - t0 < 4 and tick() < deadline do task.wait(0.1) end
             task.wait(0.25)
         end
-    elseif Config.Debug then
-        warn("[Kaitun] Không thấy Remotes.Redeem")
     end
 end
 
@@ -491,8 +483,6 @@ local function Near(cf, radius)
     return hrp ~= nil and (hrp.Position - cf.Position).Magnitude <= (radius or 10)
 end
 
--- Bay tới cf (không chặn). Trả về true nếu đã tới nơi.
--- snap: khoảng cách dưới mức này thì dịch chuyển thẳng (hữu ích khi đuổi mục tiêu đang di chuyển)
 local function MoveTo(cf, snap)
     local _, hrp = GetChar()
     if not hrp then return false end
@@ -518,7 +508,6 @@ local function MoveTo(cf, snap)
     return false
 end
 
--- NoClip + giữ lơ lửng khi script đang điều khiển nhân vật
 Connect(RunService.Stepped, function()
     local c, hrp = GetChar()
     if not c then return end
@@ -582,18 +571,16 @@ end
 
 function Combat.Hit() Combat.AttackUntil = tick() + 0.5 end
 
--- Bay lên trên mục tiêu và đánh
 function Combat.Fight(targetHRP, height)
     local _, hrp = GetChar()
     if not hrp then return end
     Combat.Equip()
     height = height or Config.FarmHeight
     local goal = CFrame.new(targetHRP.Position + Vector3.new(0, height, 0))
-    MoveTo(goal, 15)
+    MoveTo(goal, 12)
     if (hrp.Position - targetHRP.Position).Magnitude <= height + 35 then Combat.Hit() end
 end
 
--- Chống AFK kick
 Connect(LocalPlayer.Idled, function()
     VirtualUser:CaptureController()
     VirtualUser:ClickButton2(Vector2.new())
@@ -608,7 +595,6 @@ local function Alive(model)
     if hum and hrp and hum.Health > 0 then return hum, hrp end
 end
 
--- Quái gần nhất theo tên. exact=true: trùng tên; false: chứa chuỗi (không phân biệt hoa thường)
 local function NearestEnemy(name, exact)
     local folder = EnemiesFolder()
     local _, hrp = GetChar()
@@ -631,7 +617,7 @@ end
 --// ---- Gom quái (Bring Mob) ----
 local Bring = { Name = nil, Center = nil, Until = 0, Pulled = setmetatable({}, { __mode = "k" }) }
 
-function Bring.Set(name, cf)           -- name = nil: gom mọi quái
+function Bring.Set(name, cf)
     if not Config.BringMob then return end
     Bring.Name, Bring.Center, Bring.Until = name, cf, tick() + 0.6
 end
@@ -694,7 +680,6 @@ Connect(RunService.Stepped, function()
     end
 end)
 
--- Đánh quái theo tên; chưa thấy thì bay tới điểm spawn. opt: exact (mặc định true), bring, height
 local function Hunt(name, spawnCF, opt)
     opt = opt or {}
     local height = opt.height or Config.FarmHeight
@@ -713,8 +698,6 @@ local function Hunt(name, spawnCF, opt)
 end
 
 --// ===================== BẢNG QUEST =====================
--- Tọa độ & tên quest giữ nguyên từ file gốc (chưa kiểm chứng lại với bản cập nhật game mới nhất).
--- Dữ liệu Submerged Island (2600-2800) trong file gốc là tọa độ tự đặt, đã bỏ: script sẽ tiếp tục farm quest cuối cùng.
 local QuestData = {
     -- ================= SEA 1 (1 - 700) =================
     {Min = 1, Max = 9, Quest = "BanditQuest1", LevelQ = 1, Mob = "Bandit", CFrameQ = CFrame.new(1059, 15, 1550), CFrameM = CFrame.new(1045, 27, 1560)},
@@ -809,7 +792,6 @@ local QuestData = {
     {Min = 2575, Max = 2599, Quest = "TikiQuest3", LevelQ = 2, Mob = "Skull Slayer", CFrameQ = CFrame.new(-16661, 105, 1576), CFrameM = CFrame.new(-16855, 122, 1478)},
 }
 
--- Chia quest theo Sea, sắp xếp tăng dần theo Min
 local QuestBySea = { {}, {}, {} }
 for _, e in ipairs(QuestData) do
     local s = SeaOfLevel(e.Min)
@@ -819,7 +801,6 @@ for _, list in ipairs(QuestBySea) do
     table.sort(list, function(a, b) return a.Min < b.Min end)
 end
 
---// Quest động: đọc thẳng từ module của game (tự theo bản cập nhật), lỗi thì rơi về bảng tĩnh phía trên
 local Dyn = {}
 pcall(function()
     Dyn.Quests = require(ReplicatedStorage:WaitForChild("Quests", 5))
@@ -850,7 +831,6 @@ local function MobSpawn(mob, near)
     return best
 end
 
--- Quest có LevelReq cao nhất <= lvl mà accept(id, mob) chấp nhận
 local function BestQuest(lvl, accept)
     local bestId, bestList, bestReq = nil, nil, -1
     for id, list in pairs(Dyn.Quests or {}) do
@@ -864,7 +844,6 @@ local function BestQuest(lvl, accept)
     return bestId, bestList
 end
 
--- Bậc quest (1, 2...) cao nhất <= lvl, bỏ quest boss (đánh 1 con)
 local function QuestIndex(list, lvl)
     local idx
     for i, e in ipairs(list) do
@@ -919,7 +898,6 @@ local function ResolveDynamic()
     return { Quest = bestId, LevelQ = idx, Mob = mob, CFrameQ = qcf, CFrameM = mcf }
 end
 
--- Quest phù hợp level hiện tại trong Sea hiện tại (level vượt khung thì giữ quest cuối của Sea)
 local function GetQuestEntry()
     if Config.DynamicQuests then
         local ok, d = pcall(Cached, "dynq" .. tostring(Level()), 5, ResolveDynamic)
@@ -933,7 +911,6 @@ local function GetQuestEntry()
     return pick
 end
 
--- Tên quái trong tiêu đề quest thường ở dạng số nhiều (Snowman -> Snowmen, Mummy -> Mummies ...)
 local function QuestMatches(title, mob)
     title, mob = title:lower(), mob:lower()
     local forms = { mob, mob .. "s", mob .. "es" }
@@ -950,10 +927,19 @@ local function QuestUI()
     local main = pg and pg:FindFirstChild("Main")
     return main and main:FindFirstChild("Quest")
 end
+
+-- Kiểm tra chính xác xem bảng nhiệm vụ có đang mở hay không
 local function QuestVisible()
     local q = QuestUI()
-    return q ~= nil and q.Visible == true
+    if not q or not q.Visible then return false end
+    -- Kiểm tra thêm container bên trong để tránh trường hợp Frame ngoài Visible nhưng bên trong đã ẩn
+    local container = q:FindFirstChild("Container")
+    if container and container:IsA("GuiObject") and not container.Visible then
+        return false
+    end
+    return true
 end
+
 local function QuestTitle()
     local q = QuestUI()
     local c = q and q:FindFirstChild("Container")
@@ -1001,8 +987,6 @@ local function Owns(...)
 end
 
 --// ===================== BỘ ĐIỀU PHỐI TÁC VỤ =====================
--- Chỉ MỘT tác vụ được điều khiển nhân vật tại mỗi thời điểm (ưu tiên từ trên xuống).
--- Trước đây các module chạy song song và tranh nhau Tween -> nhân vật giật/kẹt.
 local Tasks = {}
 local function AddTask(name, enabled, step)
     table.insert(Tasks, { Name = name, Enabled = enabled, Step = step })
@@ -1058,8 +1042,6 @@ do
 end
 
 --// ---- 1b. Race V4: mở cửa Temple of Time (Mirage Island) ----
--- Dựa trên script LuneWata bạn gửi. Đã sửa: không spam remote mỗi frame, không chặn luồng,
--- trả lại AutoRotate, thêm hop server tìm Mirage (tùy chọn).
 do
     local Temple = { AuraAt = 0 }
     local TEMPLE_CF = CFrame.new(28286.35546875, 14896.5078125, 102.62469482422)
@@ -1157,7 +1139,7 @@ do
         if not mirage then
             SetStatus("V4: chờ Mirage Island")
             if Config.HopForMirage and Throttle("hop", 20) then Hop() end
-            return false        -- trong lúc chờ vẫn cho farm bình thường
+            return false
         end
 
         local gear = MirageGear()
@@ -1198,12 +1180,11 @@ do
     end
 
     local function KillOrGoto(name, spawnCF)
-        Hunt(name, spawnCF, { exact = false, height = Config.FarmHeight + 5 })
+        Hunt(name, spawnCF, { exact = false, height = Config.FarmHeight + 3 })
     end
 
     AddTask("SeaUnlock", Enabled, function()
         if Sea == 1 then
-            -- Sea 1 -> 2: Military Detective -> Ice Admiral -> TravelDressrosa
             local p = Cached("dressrosa", 2, function() return Invoke("DressrosaQuestProgress") end)
             if p == 2 then
                 SetStatus("Chuyển sang Sea 2")
@@ -1228,7 +1209,6 @@ do
             end
             return false
         elseif Sea == 2 then
-            -- Sea 2 -> 3: Bartilo -> Jeremy -> ... -> TravelZou
             if Level() >= 1500 then
                 local z = Cached("zq", 2, function() return Invoke("ZQuestProgress", "Check") end)
                 if z == 1 then
@@ -1281,7 +1261,6 @@ do
             Invoke("RaidsNpc", "Select", Config.SelectChip)
         end
         if HasTool("Microchip") or not Config.AutoTradeTrashFruit then return end
-        -- Đổi trái rẻ (< 1M) trong kho lấy chip
         local inv = RawInventory()
         if type(inv) ~= "table" then return end
         for _, it in pairs(inv) do
@@ -1326,7 +1305,6 @@ do
                 if Config.KillAuraRaid then Bring.Set(nil, mh.CFrame) end
                 Combat.Fight(mh, Config.FarmHeight)
             else
-                -- Hết quái ở đảo hiện tại: bay tới đảo kế, đứng chờ quái spawn rồi mới sang đảo tiếp
                 local locations = Workspace:FindFirstChild("_WorldOrigin")
                 locations = locations and locations:FindFirstChild("Locations")
                 local island = locations and locations:FindFirstChild("Island " .. Raid.Island)
@@ -1358,7 +1336,7 @@ do
     end)
 end
 
---// ---- 3b. Nâng tộc V2 (Alchemist) - thử nghiệm ----
+--// ---- 3b. Nâng tộc V2 (Alchemist) ----
 do
     local function Evolved()
         local r = Data:FindFirstChild("Race")
@@ -1372,7 +1350,7 @@ do
         local f1, f2, f3 = HasFlower(1), HasFlower(2), HasFlower(3)
         if not (f1 or f2 or f3) then
             if Beli() < 500000 then return false end
-            if Throttle("alch1", 30) then Invoke("Alchemist", "1") end   -- nhận quest
+            if Throttle("alch1", 30) then Invoke("Alchemist", "1") end
         end
         if f1 and f2 and f3 then
             SetStatus("Race V2: nộp hoa")
@@ -1383,18 +1361,18 @@ do
             return false
         end
         local name, spawn
-        if not f2 then name, spawn = "Swan Pirate", CFrame.new(1068, 137, 1322)      -- Flower 2 (đỏ)
-        elseif not f3 then name, spawn = "Zombie", CFrame.new(-5657, 78, -928) end  -- Flower 3 (vàng)
-        if not name then return false end                                              -- Flower 1 (xanh) chỉ có ban đêm, tự nhặt khi xuất hiện
+        if not f2 then name, spawn = "Swan Pirate", CFrame.new(1068, 137, 1322)
+        elseif not f3 then name, spawn = "Zombie", CFrame.new(-5657, 78, -928) end
+        if not name then return false end
         SetStatus("Race V2: farm hoa từ " .. name)
         Hunt(name, spawn, { bring = true })
         return true
     end)
 end
 
---// ---- 3c. Submerged Island (level 2600-2800): đi tàu ngầm từ Tiki Outpost ----
+--// ---- 3c. Submerged Island (level 2600-2800) ----
 do
-    local WORKER_CF = CFrame.new(-16269.41, 23.98, 1371.66)   -- NPC tàu ngầm ở Tiki Outpost (Sea 3)
+    local WORKER_CF = CFrame.new(-16269.41, 23.98, 1371.66)
     local SUB_CENTER = Vector3.new(11256, -2138, 9888)
     local S = { Key = nil, Mob = nil, Last = 0, Fails = 0, Until = 0 }
 
@@ -1413,7 +1391,7 @@ do
         local lvl = Level()
         local id, list = BestQuest(lvl, function(k) return k:find("^Submerged") ~= nil end)
         local idx = id and QuestIndex(list, lvl)
-        if not idx then return false end            -- game chưa có quest Submerged -> farm thường
+        if not idx then return false end
         local mob = tostring(next(list[idx].Task))
         local key = id .. ":" .. idx
 
@@ -1423,7 +1401,7 @@ do
             StopTween()
             if Throttle("subtravel", 5) then
                 S.Fails = S.Fails + 1
-                if S.Fails > 4 then                 -- không vào được (thiếu điều kiện/vật phẩm): nhường farm thường 2 phút
+                if S.Fails > 4 then
                     S.Fails, S.Until = 0, tick() + 120
                     return false
                 end
@@ -1439,7 +1417,7 @@ do
 
         if QuestVisible() then
             if S.Key then
-                mob = S.Mob                         -- đang làm dở quest cũ thì làm cho xong
+                mob = S.Mob
             elseif not QuestMatches(QuestTitle(), mob) then
                 if Throttle("subabandon", 2) then Invoke("AbandonQuest") end
                 return true
@@ -1467,9 +1445,7 @@ do
     end)
 end
 
---// ---- 3d. Tác vụ khôi phục từ bản gốc: Gạt cần (Mirror Fractal + Valkyrie) / Quest vật phẩm Sea 3 / Saber (Sea 1) ----
--- Các tác vụ này chạy qua bộ điều phối (không còn chạy song song tranh Tween như bản gốc) và có "ngân sách thời gian":
--- chạy tối đa N giây rồi nghỉ M giây nhường farm, để remote/tọa độ chưa kiểm chứng không giữ nhân vật mãi.
+--// ---- 3d. Tác vụ phụ: Gạt cần / Quest vật phẩm Sea 3 / Saber (Sea 1) ----
 do
     local function MakeBudget(runKey, restKey)
         local B = { Start = nil, Until = 0 }
@@ -1488,7 +1464,6 @@ do
         return B
     end
 
-    -- Tìm quái/boss theo từ khoá (không phân biệt hoa thường). inWorkspace=true: tìm cả ngoài folder Enemies
     local function FindByKeywords(keywords, inWorkspace)
         local roots = { EnemiesFolder() }
         if inWorkspace then table.insert(roots, Workspace) end
@@ -1507,7 +1482,6 @@ do
         end
     end
 
-    -- Có item khớp từ khoá trong người / túi / kho không
     local function HasKeyword(keywords)
         local function scan(cont)
             if not cont then return false end
@@ -1529,7 +1503,6 @@ do
         return false
     end
 
-    -- Tool khớp từ khoá trong người/túi; equip=true thì cầm lên tay
     local function ToolKw(keywords, equip)
         local c, _, hum = GetChar()
         if not c then return nil end
@@ -1550,7 +1523,6 @@ do
         end
     end
 
-    -- Kích hoạt ProximityPrompt / ClickDetector trong bán kính quanh nhân vật
     local function InteractNearby(radius)
         local _, hrp = GetChar()
         if not hrp then return end
@@ -1569,14 +1541,12 @@ do
         end
     end
 
-    -- Bay tới cf; tới nơi thì dừng tween và chạy fn (giới hạn tần suất)
     local function GoAndDo(cf, key, interval, fn)
         if not Near(cf, 12) then MoveTo(cf) return end
         StopTween()
         if Throttle(key, interval) then fn() end
     end
 
-    --// ---------- Gạt cần khi có Mirror Fractal + Valkyrie Helmet ----------
     do
         local B = MakeBudget("LeverRunSeconds", "LeverRestSeconds")
         local L = { Targets = {}, ScanAt = 0, Index = 1 }
@@ -1620,7 +1590,7 @@ do
             end
             local targets = Scan()
             local t = targets[L.Index]
-            if not t then                       -- đã đi hết một lượt -> nghỉ rồi quét lại
+            if not t then
                 L.Index, L.ScanAt = 1, 0
                 B.Until = tick() + (Config.LeverRestSeconds or 600)
                 return false
@@ -1648,14 +1618,13 @@ do
         end)
     end
 
-    --// ---------- Quest vật phẩm Sea 3: Yama / Tushita / CDK / Godhuman / Sanguine Art ----------
     do
         local B = MakeBudget("QuestItemRunSeconds", "QuestItemRestSeconds")
-        local YAMA_CF     = CFrame.new(5226, 20, 725)          -- Hydra Island
-        local TUSHITA_CF  = CFrame.new(-10751, 417, -9366)     -- Floating Turtle
-        local ALTAR_CF    = CFrame.new(-12356, 603, -6551)     -- bàn thờ CDK
+        local YAMA_CF     = CFrame.new(5226, 20, 725)
+        local TUSHITA_CF  = CFrame.new(-10751, 417, -9366)
+        local ALTAR_CF    = CFrame.new(-12356, 603, -6551)
         local GODHUMAN_CF = CFrame.new(-13781, 332, -9875)
-        local SANGUINE_CF = CFrame.new(-16514, 105, 1545)      -- Tiki Outpost
+        local SANGUINE_CF = CFrame.new(-16514, 105, 1545)
 
         local function Yama()
             if Owns("Yama") then return false end
@@ -1667,19 +1636,19 @@ do
         local function Tushita()
             if Owns("Tushita") then return false end
             SetStatus("Quest item: Tushita")
-            local _, lh = FindByKeywords({ "longma" })      -- boss Longma xuất hiện thì ưu tiên đánh
-            if lh then Combat.Fight(lh, 25) return true end
+            local _, lh = FindByKeywords({ "longma" })
+            if lh then Combat.Fight(lh, 16) return true end
             GoAndDo(TUSHITA_CF, "q_tushita", 2, function() Invoke("TushitaProgress") end)
             return true
         end
 
         local function CDK()
             if Owns("Cursed Dual Katana") then return false end
-            if not Owns("Yama") then return Yama() end          -- tiền đề: có cả Yama và Tushita
+            if not Owns("Yama") then return Yama() end
             if not Owns("Tushita") then return Tushita() end
             SetStatus("Quest item: CDK")
-            local _, ch = FindByKeywords({ "cursed", "soul" })  -- quái thử thách CDK
-            if ch then Combat.Fight(ch, 25) return true end
+            local _, ch = FindByKeywords({ "cursed", "soul" })
+            if ch then Combat.Fight(ch, 16) return true end
             Cached("cdkprog", 10, function() return Invoke("CDKQuest", "Progress") end)
             GoAndDo(ALTAR_CF, "q_cdk", 3, function() Invoke("CDKQuest", "StartTrial") end)
             return true
@@ -1688,7 +1657,7 @@ do
         local function HighMelee(style)
             local owned = (style == "SanguineArt") and Owns("Sanguine Art", "SanguineArt") or Owns(style)
             if owned then return false end
-            if Beli() < 5000000 or Fragments() < 5000 then return false end   -- thiếu tài nguyên -> tiếp tục farm
+            if Beli() < 5000000 or Fragments() < 5000 then return false end
             SetStatus("Quest item: " .. style)
             if style == "Godhuman" then
                 GoAndDo(GODHUMAN_CF, "q_god", 3, function() Invoke("BuyGodhuman") end)
@@ -1712,7 +1681,6 @@ do
         end)
     end
 
-    --// ---------- Auto Saber (Sea 1): Jungle -> Torch -> Cup -> Sick Man -> Mob Leader -> Relic -> Saber Expert ----------
     do
         local B = MakeBudget("SaberRunSeconds", "SaberRestSeconds")
         local Loc = {
@@ -1733,18 +1701,16 @@ do
                 task.spawn(function() Invoke("ProSG", 1) Invoke("ProSG", 2) end)
             end
 
-            -- Có Relic -> tới cửa Saber Expert, hạ boss
             if ToolKw({ "relic", "thánh tích" }, true) then
                 SetStatus("Saber: cửa Saber Expert")
                 local _, bh = FindByKeywords({ "saber expert", "shanks" }, true)
-                if bh then Combat.Fight(bh, 16) return B.Track(true) end
+                if bh then Combat.Fight(bh, 14) return B.Track(true) end
                 if not Near(Loc.SaberDoor, 10) then MoveTo(Loc.SaberDoor) return B.Track(true) end
                 StopTween()
                 if Throttle("saberint", 0.7) then InteractNearby(22) end
                 return B.Track(true)
             end
 
-            -- Có Cup -> hứng nước ở hang Frozen rồi đưa Sick Man
             if ToolKw({ "cup", "cốc" }, true) then
                 if S.Stage ~= "sick" then
                     SetStatus("Saber: hứng nước hang Frozen")
@@ -1766,7 +1732,6 @@ do
             end
             S.Stage, S.CaveAt = nil, nil
 
-            -- Có Torch -> đốt rèm ở nhà cửa đỏ Desert để lấy Cup
             if ToolKw({ "torch", "đuốc" }, true) then
                 SetStatus("Saber: đốt rèm nhà đỏ Desert")
                 if not Near(Loc.DesertRedHouse, 10) then MoveTo(Loc.DesertRedHouse) return B.Track(true) end
@@ -1775,12 +1740,11 @@ do
                 return B.Track(true)
             end
 
-            -- Mob Leader: hạ rồi gặp Rich Man nhận Relic
             local _, mh = FindByKeywords({ "mob leader" }, true)
             if mh then
                 SetStatus("Saber: đánh Mob Leader")
                 S.MobSeen, S.RichAt = true, nil
-                Combat.Fight(mh, 16)
+                Combat.Fight(mh, 14)
                 return B.Track(true)
             end
             if S.MobSeen then
@@ -1796,7 +1760,6 @@ do
                 return B.Track(true)
             end
 
-            -- Mặc định: Jungle (nút / hầm lấy Torch)
             SetStatus("Saber: Jungle")
             if not Near(Loc.JungleHole, 10) then MoveTo(Loc.JungleHole) return B.Track(true) end
             StopTween()
@@ -1806,11 +1769,14 @@ do
     end
 end
 
---// ---- 4. Farm level (mặc định, ưu tiên thấp nhất) ----
+--// ---- 4. Farm level (ĐÃ FIX LỖI BAY VỀ NPC KHI ĐANG FARM) ----
 do
-    local Farm = { Key = nil, Entry = nil, LastStart = 0, SeenVisible = false, HiddenSince = nil, TurnIn = false }
+    local Farm = {
+        ActiveEntry = nil,      -- Lưu lại thông tin nhiệm vụ đang làm dở
+        LastStart = 0,          -- Thời điểm bấm nhận nhiệm vụ gần nhất
+        WaitingQuest = false,   -- Cờ báo đang chờ UI nhiệm vụ hiện lên sau khi gọi Invoke
+    }
 
-    -- Tiến độ quest đọc từ tiêu đề, dạng "Defeat 5 Bandits (2/5)"
     local function QuestProgress()
         local n, m = QuestTitle():match("%((%d+)%s*/%s*(%d+)%)")
         if n and m then return tonumber(n), tonumber(m) end
@@ -1818,71 +1784,71 @@ do
 
     AddTask("Farm", function() return Config.AutoFarm end, function()
         local Q = GetQuestEntry()
-        local key = Q.Quest .. ":" .. Q.LevelQ
         local target = Q
 
         if Config.AutoQuest then
             local now = tick()
-            local sinceStart = now - Farm.LastStart
             local visible = QuestVisible()
+
+            -- Trường hợp 1: Bảng nhiệm vụ ĐANG HIỂN THỊ trên màn hình -> Tuyệt đối không bay về NPC
             if visible then
-                Farm.SeenVisible, Farm.HiddenSince = true, nil
-            elseif not Farm.HiddenSince then
-                Farm.HiddenSince = now
-            end
+                Farm.WaitingQuest = false
 
-            -- Xác nhận hoàn thành: tiến độ đủ (n/m) hoặc bảng quest đã tắt liên tục >= 1.5s sau khi từng hiện
-            if Farm.Entry and not Farm.TurnIn then
-                if visible then
-                    local n, m = QuestProgress()
-                    if sinceStart > 3 and n and m and n >= m then Farm.TurnIn = true end
-                elseif Farm.SeenVisible and now - Farm.HiddenSince >= 1.5 then
-                    Farm.TurnIn = true
-                end
-            end
-
-            local active
-            if Farm.TurnIn then
-                active = false
-            elseif visible then
-                active = true
-            elseif Farm.Entry then
-                if Farm.SeenVisible then
-                    active = true       -- bảng quest vừa tắt: chờ đủ 1.5s để xác nhận rồi mới về NPC
-                else
-                    active = sinceStart < 6 or (QuestUI() == nil and sinceStart < 120)
-                end
-            else
-                active = false
-            end
-
-            if active then
-                if Farm.Key and Farm.Entry then
-                    target = Farm.Entry     -- đang làm dở quest cũ thì làm cho xong rồi mới sang quest mới
-                elseif not QuestMatches(QuestTitle(), Q.Mob) then
-                    -- Quest không phải do script nhận (hoặc script vừa chạy lại) và không khớp -> hủy
-                    if Throttle("abandon", 2) then Invoke("AbandonQuest") end
+                local n, m = QuestProgress()
+                -- Nếu đã đánh đủ số lượng (vd: 8/8) thì đứng chờ 0.5s để game tự trả thưởng & tắt bảng NV
+                if n and m and n >= m then
+                    SetStatus("Đang hoàn thành nhiệm vụ...")
                     return true
                 end
+
+                -- Nếu đang có dữ liệu nhiệm vụ đã nhận từ trước, tiếp tục đánh quái của nhiệm vụ đó cho tới khi xong (kể cả khi vừa lên cấp mở quest mới)
+                if Farm.ActiveEntry then
+                    target = Farm.ActiveEntry
+                else
+                    -- Nếu người chơi đã nhận sẵn nhiệm vụ trước khi bật script
+                    if QuestMatches(QuestTitle(), Q.Mob) then
+                        Farm.ActiveEntry = Q
+                        target = Q
+                    else
+                        -- Nhiệm vụ hiện tại không khớp với cấp độ -> Hủy để nhận lại
+                        if Throttle("abandon", 2) then
+                            Invoke("AbandonQuest")
+                        end
+                        return true
+                    end
+                end
+
+            -- Trường hợp 2: Bảng nhiệm vụ KHÔNG HIỂN THỊ
             else
-                if not Farm.TurnIn and now - Farm.LastStart > 2 then Farm.Key, Farm.Entry = nil, nil end
-                SetStatus(Farm.TurnIn and ("Hoàn thành quest, về NPC nhận " .. Q.Mob) or ("Đi nhận quest " .. Q.Mob))
+                -- Nếu vừa mới gửi lệnh nhận nhiệm vụ (trong vòng 3.5 giây), đứng chờ UI load chứ không bay đi bay lại
+                if Farm.WaitingQuest and (now - Farm.LastStart) < 3.5 then
+                    SetStatus("Đang nhận nhiệm vụ " .. Q.Mob .. "...")
+                    return true
+                end
+
+                -- Reset trạng thái nhiệm vụ cũ vì bảng nhiệm vụ đã tắt (đã trả xong hoặc bị hủy)
+                Farm.ActiveEntry = nil
+                Farm.WaitingQuest = false
+
+                SetStatus("Đi nhận quest: " .. Q.Mob)
                 if not Near(Q.CFrameQ, 12) then
                     MoveTo(Q.CFrameQ)
                     return true
                 end
+
                 StopTween()
                 if Throttle("startquest", 1.5) then
+                    Farm.LastStart = tick()
+                    Farm.WaitingQuest = true
+                    Farm.ActiveEntry = Q
                     Invoke("StartQuest", Q.Quest, Q.LevelQ)
-                    Farm.Key, Farm.Entry, Farm.LastStart = key, Q, tick()
-                    Farm.TurnIn, Farm.SeenVisible, Farm.HiddenSince = false, false, nil
                 end
                 return true
             end
         end
 
         SetStatus("Farm " .. target.Mob .. " (Lv " .. tostring(Level()) .. ")")
-        Hunt(target.Mob, target.CFrameM, { bring = true })   -- chưa thấy quái thì tự bay tới điểm spawn
+        Hunt(target.Mob, target.CFrameM, { bring = true, height = Config.FarmHeight })
         return true
     end)
 end
@@ -1895,7 +1861,6 @@ Loop(0.1, function()
         return
     end
 
-    -- Hồi máu: máu thấp thì bay lên cao đứng yên tới khi hồi
     if Config.SafeHealthPercent and Config.SafeHealthPercent > 0 then
         local pct = hum.Health / math.max(1, hum.MaxHealth) * 100
         if State.Healing and pct >= 85 then
@@ -1913,7 +1878,7 @@ Loop(0.1, function()
     end
 
     for _, t in ipairs(Tasks) do
-        local okE, enabled = pcall(t.Enabled)       -- lỗi ở điều kiện của một tác vụ không được chặn các tác vụ sau (farm)
+        local okE, enabled = pcall(t.Enabled)
         if okE and enabled then
             local ok, busy = pcall(t.Step, c, hrp, hum)
             if not ok and Config.Debug then warn("[Kaitun:" .. t.Name .. "]", busy) end
@@ -1928,9 +1893,7 @@ Loop(0.1, function()
     StopTween()
 end, "arbiter")
 
---// ===================== CÁC VÒNG LẶP NỀN (không điều khiển nhân vật) =====================
-
---// ---- Cộng chỉ số ----
+--// ===================== CÁC VÒNG LẶP NỀN =====================
 do
     local function GetStat(name)
         local s = Data:FindFirstChild("Stats")
@@ -1954,14 +1917,12 @@ do
         local points = pts and pts.Value or 0
         if points <= 0 then return end
         local stat, need
-        -- Từ level 1500: ưu tiên Sword + Blox Fruit tới ngưỡng; còn lại dồn Melee/Defense
         if Level() >= 1500 then stat, need = Balanced("Sword", "Demon Fruit") end
         if not stat then stat, need = Balanced("Melee", "Defense") end
         if stat then Invoke("AddPoint", stat, math.min(points, need, 25)) end
     end, "stats")
 end
 
---// ---- Trái ác quỷ ----
 do
     Loop(Config.RandomDelay, function()
         if Config.AutoRandomFruit and Level() >= 50 and Beli() >= 25000 + Config.BeliReserve then
@@ -1987,7 +1948,6 @@ do
     end, "storefruit")
 end
 
---// ---- Mua kỹ năng / đồ ----
 do
     local Abilities = {
         { Name = "Geppo", Remote = { "BuyHaki", "Geppo" }, Beli = 10000 },
@@ -2048,7 +2008,6 @@ do
         if Config.AutoBuyShop then
             local pool = ShopData[Sea]
             if not pool then return end
-            -- Fighting style trước, vũ khí/phụ kiện sau
             for _, s in ipairs(pool.Styles) do
                 if not Owns(table.unpack(s.Names)) and Beli() >= s.Beli and Fragments() >= s.Frag
                     and Throttle("style" .. s.Names[1], 60) then
@@ -2063,7 +2022,7 @@ do
                     elseif opt.Frag then
                         if Fragments() >= opt.Frag then Invoke("BuyItem", name) task.wait(0.2) end
                     elseif opt.Ecto then
-                        Invoke("Ectoplasm", "Buy", name)      -- như bản gốc: server tự kiểm tra đủ Ectoplasm
+                        Invoke("Ectoplasm", "Buy", name)
                         task.wait(0.2)
                     end
                 end
@@ -2072,7 +2031,6 @@ do
     end, "shop")
 end
 
---// ---- Nhặt trái / hoa rơi ----
 Loop(1.5, function()
     if not Config.AutoCollectDrops or not fireTouch then return end
     local _, hrp = GetChar()
@@ -2131,7 +2089,6 @@ task.spawn(pcall, function()
         end
     end
 
-    -- Phần tử hiệu ứng skill do game tạo trong Workspace._WorldOrigin (trừ điểm spawn / vị trí đảo)
     local function IsEffectPart(obj)
         local wo = Workspace:FindFirstChild("_WorldOrigin")
         if not wo or not obj:IsDescendantOf(wo) then return false end
@@ -2139,7 +2096,6 @@ task.spawn(pcall, function()
         return true
     end
 
-    -- Ẩn người chơi khác (thân, phụ kiện, quần áo)
     local function HideOther(obj)
         if not Config.HideOtherPlayers then return end
         if not (obj:IsA("BasePart") or obj:IsA("Accessory") or obj:IsA("Clothing")
@@ -2205,7 +2161,6 @@ task.spawn(pcall, function()
         pcall(ApplyLighting)
         pcall(ApplyTerrain)
 
-        -- Quét toàn bộ map theo từng đợt để không đứng hình lúc khởi động
         task.spawn(function()
             local n = 0
             for _, d in ipairs(Workspace:GetDescendants()) do
@@ -2240,20 +2195,3 @@ end
 genv.__KaitunStop = Stop
 
 print("[Kaitun] Đã chạy | Sea " .. Sea .. " | Level " .. tostring(Level()))
-
---[[
-GHI CHÚ
-- Quest level 1-2599 giờ đọc động từ game (Config.DynamicQuests, module Quests + GuideModule + EnemySpawns) nên tự khớp
-  Update 30 (Sea 1 rework). Bảng QuestData chỉ còn là dự phòng.
-- Level 2600+ (Sea 3): task Submerged đi tàu ngầm ở Tiki Outpost tới Submerged Island rồi làm quest ở đó (AutoSubmerged).
-  Không vào được 4 lần liên tiếp thì tự nhường farm thường 2 phút rồi thử lại.
-- Khôi phục từ bản gốc (chạy qua bộ điều phối, có ngân sách thời gian để không giữ nhân vật mãi nếu remote/tọa độ sai):
-  AutoLever (Mirror Fractal + Valkyrie Helmet), AutoQuestItems (CDK/Tushita/Yama/Godhuman/SanguineArt),
-  AutoSaberQuest (Sea 1, từ level 200), đồ shop Sea 2/3 (Midnight Blade, Bizarre Rifle, Ghoul Mask, Kabucha, Serpent Bow, Soul Guitar),
-  AutoBuyChipBeli, KillAuraRaid. Chỉnh thời gian chạy/nghỉ bằng *RunSeconds / *RestSeconds trong Config.
-- Các remote/tọa độ phần "Mở khóa Sea" (DressrosaQuestProgress, ZQuestProgress, BartiloQuestProgress...) và
-  tọa độ quest giữ nguyên từ file gốc, chưa kiểm chứng với bản game hiện tại. Nếu bước nào đứng yên,
-  bật Config.Debug = true hoặc dùng Remote Spy để lấy lại đúng tên/tham số remote.
-- Sau khi chuyển Sea game sẽ teleport và script dừng: đặt script vào thư mục autoexec của executor để tự chạy lại.
-- Gom quái (BringMob) + sethiddenproperty là phần dễ bị phát hiện nhất; nếu lo ngại, đặt Config.BringMob = false.
-]]
