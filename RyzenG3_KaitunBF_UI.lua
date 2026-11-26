@@ -1127,3 +1127,14 @@ task.spawn(function()
         pcall(updateAll)
     end
 end)
+
+
+-- Trả về thư viện tương thích với script chính (Z9:CreateWindow / Z8:MakeTab ...).
+-- UI này tự dựng giao diện ở trên, nên các hàm này chỉ là stub an toàn (không làm gì).
+local function Stub()
+    return setmetatable({}, {
+        __index = function() return function() return Stub() end end,
+        __call = function() return Stub() end,
+    })
+end
+return Stub()
