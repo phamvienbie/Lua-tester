@@ -36,7 +36,7 @@ local Config = {
 
     -- Chỉ số
     AutoStats = true,
-    StatCaps = { Melee = 2800, Defense = 2800, Sword = 1500, ["Demon Fruit"] = 1300 },
+    StatCaps = { Melee = 2650, Defense = 2650, Sword = 1500, ["Demon Fruit"] = 1300 },
 
     -- Trái ác quỷ
     AutoRandomFruit = true,
@@ -103,7 +103,6 @@ local Config = {
     SeaTransparency = 1,
     HideOtherPlayers = true,
 
-    ShowStatus = true,
     Debug = false,
 }
 if type(genv.KaitunConfig) == "table" then
@@ -212,39 +211,14 @@ end
 
 local function SetStatus(text) State.Task = text end
 
+--// ===================== REDEEM CODE =====================
 if Config.AutoRedeemCode and not genv.__KaitunRedeemed then
     genv.__KaitunRedeemed = true
     local Codes = Config.RedeemCodes or {
-    -- Code x2 EXP (Còn hoạt động vĩnh viễn)
-    "Sub2OfficialNoobie",
-    "SUB2GAMERROBOT_EXP1",
-    "Sub2Fer999",
-    "Enyu_is_Pro",
-    "Magicbus",
-    "JCWK",
-    "Starcodeheo",
-    "Bluxxy",
-    "THEGREATACE",
-    "SUB2NOOBMASTER123",
-    "Sub2Daigrock",
-    "Axiore",
-    "TantaiGaming",
-    "StrawHatMaine",
-    "Sub2CaptainMaui",
-    "kittgaming",
-    " KittGaming",
-
-    -- Code Reset Chỉ Số (Stat Refund)
-    "SUB2GAMERROBOT_RESET1",
-    "Sub2UncleKizaru",
-    "Kitt_Reset",
-
-    -- Code Danh Hiệu & Beli (Title & Money)
-    "Bignews",
-    "fudd10_v2",
-    "Fudd10",
-    "Chandler"
-}
+        "EASTEREXP", "LIGHTNINGABUSE", "1LOSTADMIN", "Sub2OfficialNoobie", "SUB2GAMERROBOT_EXP1",
+        "EXP_5B", "3BVISITS", "UPD16", "UPD15", "UPD14", "UPDATE11", "UPDATE10", "ShutDownFix2",
+        "1BILLION", "2BILLION", "XMASEXP", "THIRDSEA", "CONTROL", "STAFFBATTLE", "youtuber_shipbattle",
+    }
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
     local redeem = remotes and remotes:FindFirstChild("Redeem")
     if redeem then
@@ -378,7 +352,7 @@ function Combat.Fight(targetHRP, height)
     if not hrp then return end
     Combat.Equip()
     height = height or Config.FarmHeight
-    local goal = CFrame.new(targetHRP.Position + Vector3.new(0, height, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
+    local goal = CFrame.new(targetHRP.Position + Vector3.new(0, height, 0))
     MoveTo(goal, 15)
     if (hrp.Position - targetHRP.Position).Magnitude <= height + 35 then Combat.Hit() end
 end
@@ -1863,14 +1837,17 @@ task.spawn(pcall, function()
     local function ApplyLighting()
         if not Config.NoFog then return end
         Lighting.FogStart, Lighting.FogEnd = 1e9, 1e9
-        Lighting.GlobalShadows = false
-        Lighting.EnvironmentDiffuseScale = 0
-        Lighting.EnvironmentSpecularScale = 0
+        pcall(function() Lighting.GlobalShadows = false end)
+        pcall(function() Lighting.EnvironmentDiffuseScale = 0 end)
+        pcall(function() Lighting.EnvironmentSpecularScale = 0 end)
         for _, child in ipairs(Lighting:GetChildren()) do
-            if child:IsA("Atmosphere") or child:IsA("BloomEffect") or child:IsA("BlurEffect")
-                or child:IsA("SunRaysEffect") or child:IsA("DepthOfFieldEffect") or child:IsA("ColorCorrectionEffect") then
-                child.Enabled = false
-            end
+            pcall(function()
+                if child:IsA("Atmosphere") then
+                    child.Density, child.Haze, child.Glare, child.Offset = 0, 0, 0, 0
+                elseif child:IsA("PostEffect") then
+                    child.Enabled = false
+                end
+            end)
         end
     end
 
@@ -1958,8 +1935,8 @@ task.spawn(pcall, function()
     end
 
     if Config.FixLag or Config.NoSkillGFX or Config.XRay or Config.NoFog or Config.RemoveSFX then
-        ApplyLighting()
-        ApplyTerrain()
+        pcall(ApplyLighting)
+        pcall(ApplyTerrain)
 
         -- Quét toàn bộ map theo từng đợt để không đứng hình lúc khởi động
         task.spawn(function()
@@ -1982,47 +1959,10 @@ task.spawn(pcall, function()
     end
 end)
 
---// ===================== FAST ATTACK NÂNG CAO (đánh hàng loạt + hook RegisterHit + nút bật/tắt) =====================
--- Khôi phục & sửa từ bản G3: điều kiện hook bị ngược (not checkcaller) nên hook không bao giờ chạy; vòng lặp không dừng khi Stop.
+--// ===================== FAST ATTACK (đánh hàng loạt + hook RegisterHit, luôn bật) =====================
 do
-    local UserInputService = game:GetService("UserInputService")
-
-    -- Hook RegisterHit: nếu game gọi RegisterHit không kèm tham số thì tự điền mục tiêu gần nhất.
-    -- Hook chỉ cài một lần/phiên game; đọc cấu hình mới nhất qua genv nên chạy lại script vẫn đúng.
-    if not genv.HiruFastAttackHooked then
-        genv.HiruFastAttackHooked = true
-        pcall(function()
-            if not (hookmetamethod and checkcaller and getnamecallmethod and newcclosure) then return end
-            local lp = Players.LocalPlayer
-            local old
-            old = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-                local cfg = genv.KaitunConfig
-                if genv.__KaitunRunning and cfg and cfg.FastAttackHook
-                    and getnamecallmethod() == "FireServer"
-                    and not checkcaller() and (select("#", ...) == 0 or (...) == nil)
-                    and tostring(self) == "RE/RegisterHit" then
-                    local char = lp.Character
-                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                    local enemies = workspace:FindFirstChild("Enemies")
-                    if hrp and enemies then
-                        local range = tonumber(cfg.AttackRange) or 85
-                        local best, bestDistSq = nil, range * range
-                        for _, mob in ipairs(enemies:GetChildren()) do
-                            local hum = mob:FindFirstChildOfClass("Humanoid")
-                            local th = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
-                            if hum and hum.Health > 0 and th then
-                                local diff = th.Position - hrp.Position
-                                local dSq = diff.X * diff.X + diff.Y * diff.Y + diff.Z * diff.Z
-                                if dSq <= bestDistSq then best, bestDistSq = th, dSq end
-                            end
-                        end
-                        if best then return old(self, best, {}) end
-                    end
-                end
-                return old(self, ...)
-            end))
-        end)
-    end
+    Config.FastAttackHook = true
+    _G.FastAttackHook = true
 
     -- Cache remote để tăng tốc (quét lại mỗi 3 giây khi cần)
     local Cached_ = { RegAttack = nil, RegHit = nil, LastScan = 0 }
@@ -2040,6 +1980,50 @@ do
         end)
     end
     RefreshRemotes(true)
+
+    local function FindTargetPart(hrp, range)
+        local enemies = workspace:FindFirstChild("Enemies")
+        if not enemies then return nil end
+        local bestPart, bestDistSq = nil, range * range
+        for _, mob in ipairs(enemies:GetChildren()) do
+            local hum = mob:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                local part = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
+                if part then
+                    local diff = part.Position - hrp.Position
+                    local distSq = diff.X * diff.X + diff.Y * diff.Y + diff.Z * diff.Z
+                    if distSq <= bestDistSq then bestDistSq, bestPart = distSq, part end
+                end
+            end
+        end
+        return bestPart
+    end
+
+    -- Hook RegisterHit: nếu game gọi RegisterHit không kèm tham số thì tự điền mục tiêu gần nhất.
+    -- (Bản dán vào dùng điều kiện "not checkcaller" bị ngược nên hook không bao giờ cài; đã sửa lại.)
+    if not genv.HiruFastAttackHooked then
+        genv.HiruFastAttackHooked = true
+        pcall(function()
+            if not (hookmetamethod and checkcaller and getnamecallmethod and newcclosure) then return end
+            local lp = Players.LocalPlayer
+            local old
+            old = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+                local cfg = genv.KaitunConfig
+                if genv.__KaitunRunning and cfg and cfg.FastAttackHook
+                    and getnamecallmethod() == "FireServer"
+                    and not checkcaller() and (select("#", ...) == 0 or (...) == nil)
+                    and tostring(self) == "RE/RegisterHit" then
+                    local char = lp.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        local best = FindTargetPart(hrp, tonumber(cfg.AttackRange) or 85)
+                        if best then return old(self, best, {}) end
+                    end
+                end
+                return old(self, ...)
+            end))
+        end)
+    end
 
     local lastBuso = 0
     local function EnsureBuso(char)
@@ -2077,7 +2061,7 @@ do
                 end
             end
         end
-        if Config.PrioritizeNearest and #list > 1 then
+        if #list > 1 then
             table.sort(list, function(a, b) return a.distSq < b.distSq end)
         end
         if #list > maxCount then
@@ -2102,94 +2086,14 @@ do
         end
     end
 
-    -- Nút bật/tắt Fast Attack, kéo thả được (PC & Mobile)
-    local function CreateToggleButton()
-        local playerGui = LocalPlayer:WaitForChild("PlayerGui", 30)
-        local parent = (gethui and gethui()) or playerGui
-        if not parent then return end
-        for _, root in ipairs({ playerGui, parent }) do
-            local old = root and root:FindFirstChild("HiruFastAttackGui")
-            if old then old:Destroy() end
-        end
-
-        local screenGui = Instance.new("ScreenGui")
-        screenGui.Name = "HiruFastAttackGui"
-        screenGui.ResetOnSpawn = false
-        screenGui.Parent = parent
-        table.insert(Cleanups, function() screenGui:Destroy() end)
-
-        local btn = Instance.new("TextButton")
-        btn.Name = "ToggleBtn"
-        btn.Size = UDim2.new(0, 148, 0, 38)
-        btn.Position = UDim2.new(0, 20, 0.5, -19)
-        btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 13
-        btn.AutoButtonColor = true
-        btn.Parent = screenGui
-
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 8)
-        corner.Parent = btn
-        local stroke = Instance.new("UIStroke")
-        stroke.Thickness = 1.5
-        stroke.Parent = btn
-
-        local function refresh()
-            if Config.FastAttackHook then
-                btn.Text = "Fast Attack: ON"
-                stroke.Color = Color3.fromRGB(60, 220, 120)
-                btn.BackgroundColor3 = Color3.fromRGB(20, 42, 28)
-            else
-                btn.Text = "Fast Attack: OFF"
-                stroke.Color = Color3.fromRGB(230, 75, 75)
-                btn.BackgroundColor3 = Color3.fromRGB(45, 22, 22)
-            end
-        end
-        refresh()
-
-        local dragging, moved = false, false
-        local dragInput, dragStart, startPos
-        btn.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                dragging, moved = true, false
-                dragStart, startPos = input.Position, btn.Position
-                input.Changed:Connect(function()
-                    if input.UserInputState == Enum.UserInputState.End then dragging = false end
-                end)
-            end
-        end)
-        btn.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-                dragInput = input
-            end
-        end)
-        Connect(UserInputService.InputChanged, function(input)
-            if input == dragInput and dragging and dragStart and startPos then
-                local delta = input.Position - dragStart
-                if delta.Magnitude > 6 then moved = true end
-                btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X,
-                    startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-            end
-        end)
-        btn.MouseButton1Click:Connect(function()
-            if moved then return end            -- vừa kéo thả thì không đổi trạng thái
-            Config.FastAttackHook = not Config.FastAttackHook
-            _G.FastAttackHook = Config.FastAttackHook
-            refresh()
-        end)
-    end
-    task.spawn(function() pcall(CreateToggleButton) end)
-
     -- Vòng lặp tấn công chính (có khóa chống chồng lệnh)
     local isAttacking = false
     task.spawn(function()
         while Running do
             task.wait(math.max(0.035, tonumber(Config.AttackDelay) or 0.052))
-            if Config.FastAttackHook and not isAttacking then
+            if not isAttacking then
                 isAttacking = true
-                pcall(function()
+                local ok, err = pcall(function()
                     local c, hrp = GetChar()
                     if not c then return end
                     local tool = EquippedTool(c)
@@ -2201,40 +2105,10 @@ do
                     pcall(function() tool:Activate() end)
                     FireHitBatch(targets)
                 end)
+                if not ok and Config.Debug then warn("[Kaitun:fastattack]", err) end
                 isAttacking = false
             end
         end
-    end)
-end
-
---// ===================== BẢNG TRẠNG THÁI =====================
-if Config.ShowStatus then
-    pcall(function()
-        local function fmt(n)
-            local s = tostring(math.floor(n)):reverse():gsub("(%d%d%d)", "%1,"):reverse()
-            return (s:gsub("^,", ""))
-        end
-        local gui = Instance.new("ScreenGui")
-        gui.Name = "KaitunStatus"
-        gui.ResetOnSpawn = false
-        gui.IgnoreGuiInset = true
-        gui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.fromOffset(300, 64)
-        label.Position = UDim2.new(0, 8, 0, 8)
-        label.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-        label.BackgroundTransparency = 0.25
-        label.TextColor3 = Color3.fromRGB(235, 235, 235)
-        label.Font = Enum.Font.Code
-        label.TextSize = 14
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.TextYAlignment = Enum.TextYAlignment.Top
-        label.Parent = gui
-        table.insert(Cleanups, function() gui:Destroy() end)
-        Loop(0.5, function()
-            label.Text = ("  Lv %s | Sea %d | Beli %s | Frag %s\n  %s"):format(
-                tostring(Level()), Sea, fmt(Beli()), fmt(Fragments()), State.Task)
-        end, "ui")
     end)
 end
 
