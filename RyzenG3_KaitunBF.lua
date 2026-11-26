@@ -215,8 +215,8 @@ local function getBatchTargets(hrp, range, maxCount)
 	return list
 end
 
-if not getgenv().HiruFastAttackHookedV3 then
-	getgenv().HiruFastAttackHookedV3 = true
+if not getgenv().HiruFastAttackHookedV4 then
+	getgenv().HiruFastAttackHookedV4 = true
 
 	pcall(function()
 		local mt = getrawmetatable(game)
@@ -278,22 +278,52 @@ local function getEquippedTool(char)
 	return nil
 end
 
-local isAttacking = false
+-- Dừng luồng fast attack cũ nếu script được chạy lại
+if genv.__KaitunFastAttackThread then
+	pcall(function() task.cancel(genv.__KaitunFastAttackThread) end)
+	genv.__KaitunFastAttackThread = nil
+end
 
-task.spawn(function()
-	while true do
+local function ensureToolForAttack(char, hum)
+	local tool = getEquippedTool(char)
+	if tool then return tool end
+	local bp = LocalPlayer:FindFirstChild("Backpack")
+	if bp then
+		-- Ưu tiên vũ khí đang chọn theo _G.SelectWeapon hoặc Config.SelectWeapon
+		local preferredType = (_G.SelectWeapon or (Config and Config.SelectWeapon) or "Melee")
+		local fallbackTool = nil
+		for _, item in ipairs(bp:GetChildren()) do
+			if item:IsA("Tool") then
+				if not fallbackTool then
+					fallbackTool = item
+				end
+				if item.ToolTip == preferredType or (preferredType == "Melee" and item.ToolTip == "") then
+					pcall(function() hum:EquipTool(item) end)
+					return item
+				end
+			end
+		end
+		if fallbackTool then
+			pcall(function() hum:EquipTool(fallbackTool) end)
+			return fallbackTool
+		end
+	end
+	return nil
+end
+
+genv.__KaitunFastAttackThread = task.spawn(function()
+	while _G.FastAttackHook do
 		local delayTime = tonumber(_G.AttackDelay) or 0.055
 		if delayTime < 0.04 then
 			delayTime = 0.04
 		end
 		task.wait(delayTime)
 
-		if not _G.FastAttackHook or isAttacking then
+		if not _G.FastAttackHook then
 			continue
 		end
 
-		isAttacking = true
-		pcall(function()
+		local ok, err = pcall(function()
 			local char = LocalPlayer.Character
 			if not char then return end
 
@@ -301,15 +331,15 @@ task.spawn(function()
 			local hum = char:FindFirstChildOfClass("Humanoid")
 			if not hrp or not hum or hum.Health <= 0 then return end
 
-			local tool = getEquippedTool(char)
-			if not tool then return end
-
 			refreshRemotes(false)
 
 			local range = tonumber(_G.AttackRange) or 65
 			local maxBatch = tonumber(_G.MaxBatchTargets) or 8
 			local targets = getBatchTargets(hrp, range, maxBatch)
 			if #targets == 0 then return end
+
+			local tool = ensureToolForAttack(char, hum)
+			if not tool then return end
 
 			checkBuso(char)
 
@@ -337,7 +367,9 @@ task.spawn(function()
 				end)
 			end
 		end)
-		isAttacking = false
+		if not ok and Config and Config.Debug then
+			warn("[FastAttack]", err)
+		end
 	end
 end)
 
@@ -2379,6 +2411,11 @@ end)
 local function Stop()
     Running = false
     genv.__KaitunRunning = false
+    _G.FastAttackHook = false
+    if genv.__KaitunFastAttackThread then
+        pcall(function() task.cancel(genv.__KaitunFastAttackThread) end)
+        genv.__KaitunFastAttackThread = nil
+    end
     for _, c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
     for _, f in ipairs(Cleanups) do pcall(f) end
     StopTween()
