@@ -111,6 +111,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
+local VirtualUser = game:GetService("VirtualUser")
+local Workspace = game:GetService("Workspace")
 
 -- ==========================================
 -- CẤU HÌNH FAST ATTACK TỐC ĐỘ CAO & ỔN ĐỊNH
@@ -121,6 +123,9 @@ _G.AttackRange = 65
 _G.MaxBatchTargets = 8
 _G.AutoBuso = true
 
+-- ==========================================
+-- FAST ATTACK TƯƠNG THÍCH BẢN CẬP NHẬT MỚI (v7)
+-- ==========================================
 local CachedRemotes = {
 	RegAttack = nil,
 	RegHit = nil,
@@ -128,9 +133,26 @@ local CachedRemotes = {
 	LastScan = 0
 }
 
+local function findRemoteByName(root, targetName)
+	if not root then return nil end
+	local direct = root:FindFirstChild(targetName, true)
+	if direct and direct:IsA("RemoteEvent") then
+		return direct
+	end
+	for _, desc in ipairs(root:GetDescendants()) do
+		if desc:IsA("RemoteEvent") then
+			local n = desc.Name
+			if n == targetName or n:find(targetName, 1, true) then
+				return desc
+			end
+		end
+	end
+	return nil
+end
+
 local function refreshRemotes(force)
 	local now = os.clock()
-	if not force and (now - CachedRemotes.LastScan) < 3 then
+	if not force and (now - CachedRemotes.LastScan) < 2 then
 		return
 	end
 	CachedRemotes.LastScan = now
@@ -138,61 +160,63 @@ local function refreshRemotes(force)
 	pcall(function()
 		local remotes = ReplicatedStorage:FindFirstChild("Remotes")
 		if remotes and not CachedRemotes.CommF then
-			CachedRemotes.CommF = remotes:FindFirstChild("CommF_")
+			CachedRemotes.CommF = remotes:FindFirstChild("CommF_") or remotes:FindFirstChild("CommF_", true)
 		end
 
 		local modules = ReplicatedStorage:FindFirstChild("Modules")
 		local net = modules and modules:FindFirstChild("Net")
-		if net then
-			CachedRemotes.RegAttack = net:FindFirstChild("RE/RegisterAttack")
-			CachedRemotes.RegHit = net:FindFirstChild("RE/RegisterHit")
-		end
+		CachedRemotes.RegAttack = findRemoteByName(net, "RE/RegisterAttack") or findRemoteByName(ReplicatedStorage, "RegisterAttack")
+		CachedRemotes.RegHit = findRemoteByName(net, "RE/RegisterHit") or findRemoteByName(ReplicatedStorage, "RegisterHit")
 	end)
 end
 
 refreshRemotes(true)
 
-local function findFastTargetPart(hrp, range)
+local function collectMobContainers()
+	local containers = {}
 	local enemies = workspace:FindFirstChild("Enemies")
-	if not enemies then return nil end
-
-	local bestPart = nil
-	local bestDistSq = range * range
-
-	for _, mob in ipairs(enemies:GetChildren()) do
-		local hum = mob:FindFirstChildOfClass("Humanoid")
-		if hum and hum.Health > 0 then
-			local part = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
-			if part then
-				local diff = part.Position - hrp.Position
-				local distSq = diff.X * diff.X + diff.Y * diff.Y + diff.Z * diff.Z
-				if distSq <= bestDistSq then
-					bestDistSq = distSq
-					bestPart = part
-				end
-			end
-		end
+	if enemies then
+		table.insert(containers, enemies)
 	end
+	table.insert(containers, workspace)
+	return containers
+end
 
-	return bestPart
+local function isValidEnemyModel(model, char)
+	if not model or not model:IsA("Model") or model == char then
+		return false
+	end
+	if Players:GetPlayerFromCharacter(model) then
+		return false
+	end
+	local hum = model:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then
+		return false
+	end
+	local part = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Head") or model.PrimaryPart
+	if not part or not part:IsA("BasePart") then
+		return false
+	end
+	return true, hum, part
 end
 
 local function getBatchTargets(hrp, range, maxCount)
-	local enemies = workspace:FindFirstChild("Enemies")
-	if not enemies then return {} end
-
+	local char = LocalPlayer.Character
 	local list = {}
+	local seen = {}
 	local maxDistSq = range * range
 
-	for _, mob in ipairs(enemies:GetChildren()) do
-		local hum = mob:FindFirstChildOfClass("Humanoid")
-		if hum and hum.Health > 0 then
-			local part = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
-			if part then
-				local diff = part.Position - hrp.Position
-				local distSq = diff.X * diff.X + diff.Y * diff.Y + diff.Z * diff.Z
-				if distSq <= maxDistSq then
-					table.insert(list, { mob = mob, part = part, distSq = distSq })
+	for _, container in ipairs(collectMobContainers()) do
+		for _, mob in ipairs(container:GetChildren()) do
+			if mob:IsA("Model") and not seen[mob] then
+				local ok, _, part = isValidEnemyModel(mob, char)
+				if ok and part then
+					local diff = part.Position - hrp.Position
+					local distSq = diff.X * diff.X + diff.Y * diff.Y + diff.Z * diff.Z
+					if distSq <= maxDistSq then
+						seen[mob] = true
+						table.insert(list, { mob = mob, part = part, distSq = distSq })
+					end
 				end
 			end
 		end
@@ -215,8 +239,17 @@ local function getBatchTargets(hrp, range, maxCount)
 	return list
 end
 
-if not getgenv().HiruFastAttackHookedV4 then
-	getgenv().HiruFastAttackHookedV4 = true
+local function buildHitPayload(targets)
+	local primary = targets[1].part
+	local extra = {}
+	for i = 2, #targets do
+		extra[i - 1] = { targets[i].mob, targets[i].part }
+	end
+	return primary, extra
+end
+
+if not getgenv().HiruFastAttackHookedV7 then
+	getgenv().HiruFastAttackHookedV7 = true
 
 	pcall(function()
 		local mt = getrawmetatable(game)
@@ -227,21 +260,21 @@ if not getgenv().HiruFastAttackHookedV4 then
 			mt.__namecall = newcclosure(function(self, ...)
 				if _G.FastAttackHook and not checkcaller() then
 					local method = getnamecallmethod()
-					if method == "FireServer" and tostring(self) == "RE/RegisterHit" then
-						local args = { ... }
-						local char = LocalPlayer.Character
-						local hrp = char and char:FindFirstChild("HumanoidRootPart")
-						if hrp then
-							local range = tonumber(_G.AttackRange) or 65
-							local targets = getBatchTargets(hrp, range, tonumber(_G.MaxBatchTargets) or 8)
-							if #targets > 0 then
-								args[1] = targets[1].part
-								local extra = {}
-								for i = 2, #targets do
-									extra[i - 1] = { targets[i].mob, targets[i].part }
+					if method == "FireServer" then
+						local sName = tostring(self)
+						if sName == "RE/RegisterHit" or sName:find("RegisterHit", 1, true) then
+							local args = { ... }
+							local char = LocalPlayer.Character
+							local hrp = char and char:FindFirstChild("HumanoidRootPart")
+							if hrp then
+								local range = tonumber(_G.AttackRange) or 65
+								local targets = getBatchTargets(hrp, range, tonumber(_G.MaxBatchTargets) or 8)
+								if #targets > 0 then
+									local primary, extra = buildHitPayload(targets)
+									args[1] = primary
+									args[2] = extra
+									return oldNamecall(self, unpack(args))
 								end
-								args[2] = extra
-								return oldNamecall(self, unpack(args))
 							end
 						end
 					end
@@ -278,7 +311,6 @@ local function getEquippedTool(char)
 	return nil
 end
 
--- Dừng luồng fast attack cũ nếu script được chạy lại
 if genv.__KaitunFastAttackThread then
 	pcall(function() task.cancel(genv.__KaitunFastAttackThread) end)
 	genv.__KaitunFastAttackThread = nil
@@ -289,7 +321,6 @@ local function ensureToolForAttack(char, hum)
 	if tool then return tool end
 	local bp = LocalPlayer:FindFirstChild("Backpack")
 	if bp then
-		-- Ưu tiên vũ khí đang chọn theo _G.SelectWeapon hoặc Config.SelectWeapon
 		local preferredType = (_G.SelectWeapon or (Config and Config.SelectWeapon) or "Melee")
 		local fallbackTool = nil
 		for _, item in ipairs(bp:GetChildren()) do
@@ -309,6 +340,20 @@ local function ensureToolForAttack(char, hum)
 		end
 	end
 	return nil
+end
+
+local function triggerToolAttack(tool)
+	pcall(function()
+		tool:Activate()
+	end)
+	if not _G.FastAttackHook then
+		pcall(function()
+			local vu = game:GetService("VirtualUser")
+			vu:CaptureController()
+			vu:Button1Down(Vector2.new(640, 360))
+			vu:Button1Up(Vector2.new(640, 360))
+		end)
+	end
 end
 
 genv.__KaitunFastAttackThread = task.spawn(function()
@@ -342,10 +387,7 @@ genv.__KaitunFastAttackThread = task.spawn(function()
 			if not tool then return end
 
 			checkBuso(char)
-
-			pcall(function()
-				tool:Activate()
-			end)
+			triggerToolAttack(tool)
 
 			local regAttack = CachedRemotes.RegAttack
 			local regHit = CachedRemotes.RegHit
@@ -357,11 +399,7 @@ genv.__KaitunFastAttackThread = task.spawn(function()
 			end
 
 			if regHit and regHit:IsA("RemoteEvent") then
-				local primary = targets[1].part
-				local extra = {}
-				for i = 2, #targets do
-					extra[i - 1] = { targets[i].mob, targets[i].part }
-				end
+				local primary, extra = buildHitPayload(targets)
 				pcall(function()
 					regHit:FireServer(primary, extra)
 				end)
