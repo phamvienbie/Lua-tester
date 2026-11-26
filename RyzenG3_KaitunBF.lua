@@ -15,13 +15,6 @@ local Config = {
     -- Farm level
     AutoFarm = true,
     AutoQuest = true,
-    FastAttack = true,
-    FastAttackHook = true,
-    AttackDelay = 0.052,
-    AttackRange = 85,
-    MaxBatchTargets = 6,
-    PrioritizeNearest = true,
-    AutoBuso = true,
     BringMob = true,
     BringDistance = 250,
     Team = "Pirates",
@@ -108,14 +101,257 @@ local Config = {
 if type(genv.KaitunConfig) == "table" then
     for k, v in pairs(genv.KaitunConfig) do Config[k] = v end
 end
-for _, k in ipairs({ "FastAttackHook", "AttackDelay", "AttackRange", "MaxBatchTargets", "PrioritizeNearest", "AutoBuso" }) do
-    if _G[k] ~= nil then Config[k] = _G[k] end      -- tương thích cách đặt _G.* của bản cũ
-end
 if type(Config.StatCaps) == "table" and Config.StatCaps["Blox Fruit"] then   -- tương thích bản gốc
     Config.StatCaps["Demon Fruit"] = Config.StatCaps["Blox Fruit"]
     Config.StatCaps["Blox Fruit"] = nil
 end
 genv.KaitunConfig = Config
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- ==========================================
+-- CẤU HÌNH TỐC ĐỘ CAO & ỔN ĐỊNH
+-- ==========================================
+_G.FastAttackHook = true
+_G.AttackDelay = 0.052        -- Nhanh (~0.045 - 0.07); nếu server/ping cao thì tăng lên 0.075 - 0.09
+_G.AttackRange = 120           -- Tầm đánh hợp lý để tránh hụt hit/bỏ qua dame
+_G.MaxBatchTargets = 6        -- Số mục tiêu gom tối đa mỗi đợt để gọn và nhanh
+_G.AutoBuso = true            -- Tự bật Buso/Haki vũ trang
+
+-- ==========================================
+-- CACHE REMOTE ĐỂ TĂNG TỐC ĐỘ THỰC THI
+-- ==========================================
+local CachedRemotes = {
+	RegAttack = nil,
+	RegHit = nil,
+	CommF = nil,
+	LastScan = 0
+}
+
+local function refreshRemotes(force)
+	local now = os.clock()
+	if not force and (now - CachedRemotes.LastScan) < 3 then
+		return
+	end
+	CachedRemotes.LastScan = now
+
+	pcall(function()
+		local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+		if remotes and not CachedRemotes.CommF then
+			CachedRemotes.CommF = remotes:FindFirstChild("CommF_")
+		end
+
+		local modules = ReplicatedStorage:FindFirstChild("Modules")
+		local net = modules and modules:FindFirstChild("Net")
+		if net then
+			CachedRemotes.RegAttack = net:FindFirstChild("RE/RegisterAttack")
+			CachedRemotes.RegHit = net:FindFirstChild("RE/RegisterHit")
+		end
+	end)
+end
+
+refreshRemotes(true)
+
+-- ==========================================
+-- HÀM TÌM MỤC TIÊU NHANH
+-- ==========================================
+local function findFastTargetPart(hrp, range)
+	local enemies = workspace:FindFirstChild("Enemies")
+	if not enemies then return nil end
+
+	local bestPart = nil
+	local bestDistSq = range * range
+
+	for _, mob in ipairs(enemies:GetChildren()) do
+		local hum = mob:FindFirstChildOfClass("Humanoid")
+		if hum and hum.Health > 0 then
+			local part = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
+			if part then
+				local diff = part.Position - hrp.Position
+				local distSq = diff.X * diff.X + diff.Y * diff.Y + diff.Z * diff.Z
+				if distSq <= bestDistSq then
+					bestDistSq = distSq
+					bestPart = part
+				end
+			end
+		end
+	end
+
+	return bestPart
+end
+
+local function getBatchTargets(hrp, range, maxCount)
+	local enemies = workspace:FindFirstChild("Enemies")
+	if not enemies then return {} end
+
+	local list = {}
+	local maxDistSq = range * range
+
+	for _, mob in ipairs(enemies:GetChildren()) do
+		local hum = mob:FindFirstChildOfClass("Humanoid")
+		if hum and hum.Health > 0 then
+			local part = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
+			if part then
+				local diff = part.Position - hrp.Position
+				local distSq = diff.X * diff.X + diff.Y * diff.Y + diff.Z * diff.Z
+				if distSq <= maxDistSq then
+					table.insert(list, { mob = mob, part = part, distSq = distSq })
+				end
+			end
+		end
+	end
+
+	if #list > 1 then
+		table.sort(list, function(a, b)
+			return a.distSq < b.distSq
+		end)
+	end
+
+	if #list > maxCount then
+		local trimmed = {}
+		for i = 1, maxCount do
+			trimmed[i] = list[i]
+		end
+		return trimmed
+	end
+
+	return list
+end
+
+-- ==========================================
+-- HOOK __NAMECALL AN TOÀN (CHỐNG TRÙNG)
+-- ==========================================
+if not getgenv().HiruFastAttackHookedV3 then
+	getgenv().HiruFastAttackHookedV3 = true
+
+	pcall(function()
+		local mt = getrawmetatable(game)
+		if mt and hookmetamethod and not checkcaller then
+			local oldNamecall = mt.__namecall
+			setreadonly(mt, false)
+
+			mt.__namecall = newcclosure(function(self, ...)
+				if _G.FastAttackHook then
+					local method = getnamecallmethod()
+					if method == "FireServer" and tostring(self) == "RE/RegisterHit" then
+						local args = { ... }
+						if #args == 0 or args[1] == nil then
+							local char = LocalPlayer.Character
+							local hrp = char and char:FindFirstChild("HumanoidRootPart")
+							if hrp then
+								local targetPart = findFastTargetPart(hrp, tonumber(_G.AttackRange) or 85)
+								if targetPart then
+									args[1] = targetPart
+									args[2] = args[2] or {}
+									return oldNamecall(self, unpack(args))
+								end
+							end
+						end
+					end
+				end
+
+				return oldNamecall(self, ...)
+			end)
+
+			setreadonly(mt, true)
+		end
+	end)
+end
+
+-- ==========================================
+-- HAKI & VŨ KHÍ
+-- ==========================================
+local lastBusoTime = 0
+local function checkBuso(char)
+	if not _G.AutoBuso then return end
+	local now = os.clock()
+	if (now - lastBusoTime) < 2 then return end
+	lastBusoTime = now
+
+	if char and not char:FindFirstChild("HasBuso") and CachedRemotes.CommF then
+		pcall(function()
+			CachedRemotes.CommF:InvokeServer("Buso")
+		end)
+	end
+end
+
+local function getEquippedTool(char)
+	for _, child in ipairs(char:GetChildren()) do
+		if child:IsA("Tool") then
+			return child
+		end
+	end
+	return nil
+end
+
+-- ==========================================
+-- VÒNG LẶP ĐÁNH TỐC ĐỘ CAO CÓ KHÓA CHỐNG CHỒNG
+-- ==========================================
+local isAttacking = false
+
+task.spawn(function()
+	while true do
+		local delayTime = tonumber(_G.AttackDelay) or 0.052
+		if delayTime < 0.035 then
+			delayTime = 0.035
+		end
+		task.wait(delayTime)
+
+		if not _G.FastAttackHook or isAttacking then
+			continue
+		end
+
+		isAttacking = true
+		pcall(function()
+			local char = LocalPlayer.Character
+			if not char then return end
+
+			local hrp = char:FindFirstChild("HumanoidRootPart")
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if not hrp or not hum or hum.Health <= 0 then return end
+
+			local tool = getEquippedTool(char)
+			if not tool then return end
+
+			refreshRemotes(false)
+
+			local range = tonumber(_G.AttackRange) or 85
+			local maxBatch = tonumber(_G.MaxBatchTargets) or 6
+			local targets = getBatchTargets(hrp, range, maxBatch)
+			if #targets == 0 then return end
+
+			checkBuso(char)
+
+			pcall(function()
+				tool:Activate()
+			end)
+
+			local regAttack = CachedRemotes.RegAttack
+			local regHit = CachedRemotes.RegHit
+
+			if regAttack and regAttack:IsA("RemoteEvent") then
+				pcall(function()
+					regAttack:FireServer(0)
+				end)
+			end
+
+			if regHit and regHit:IsA("RemoteEvent") then
+				local primary = targets[1].part
+				local extra = {}
+				for i = 2, #targets do
+					extra[i - 1] = { targets[i].mob, targets[i].part }
+				end
+				pcall(function()
+					regHit:FireServer(primary, extra)
+				end)
+			end
+		end)
+		isAttacking = false
+	end
+end)
 
 --// ===================== SERVICES =====================
 local Players = game:GetService("Players")
@@ -356,13 +592,6 @@ function Combat.Fight(targetHRP, height)
     MoveTo(goal, 15)
     if (hrp.Position - targetHRP.Position).Magnitude <= height + 35 then Combat.Hit() end
 end
-
-Loop(0.06, function()
-    if Config.FastAttack and tick() < Combat.AttackUntil then
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton1(Vector2.new(851, 158), Workspace.CurrentCamera and Workspace.CurrentCamera.CFrame or CFrame.new())
-    end
-end, "attack")
 
 -- Chống AFK kick
 Connect(LocalPlayer.Idled, function()
@@ -1579,7 +1808,13 @@ end
 
 --// ---- 4. Farm level (mặc định, ưu tiên thấp nhất) ----
 do
-    local Farm = { Key = nil, Entry = nil, LastStart = 0 }
+    local Farm = { Key = nil, Entry = nil, LastStart = 0, SeenVisible = false, HiddenSince = nil, TurnIn = false }
+
+    -- Tiến độ quest đọc từ tiêu đề, dạng "Defeat 5 Bandits (2/5)"
+    local function QuestProgress()
+        local n, m = QuestTitle():match("%((%d+)%s*/%s*(%d+)%)")
+        if n and m then return tonumber(n), tonumber(m) end
+    end
 
     AddTask("Farm", function() return Config.AutoFarm end, function()
         local Q = GetQuestEntry()
@@ -1587,9 +1822,40 @@ do
         local target = Q
 
         if Config.AutoQuest then
-            local sinceStart = tick() - Farm.LastStart
-            local active = QuestVisible()
-                or (Farm.Entry ~= nil and (sinceStart < 6 or (QuestUI() == nil and sinceStart < 120)))
+            local now = tick()
+            local sinceStart = now - Farm.LastStart
+            local visible = QuestVisible()
+            if visible then
+                Farm.SeenVisible, Farm.HiddenSince = true, nil
+            elseif not Farm.HiddenSince then
+                Farm.HiddenSince = now
+            end
+
+            -- Xác nhận hoàn thành: tiến độ đủ (n/m) hoặc bảng quest đã tắt liên tục >= 1.5s sau khi từng hiện
+            if Farm.Entry and not Farm.TurnIn then
+                if visible then
+                    local n, m = QuestProgress()
+                    if sinceStart > 3 and n and m and n >= m then Farm.TurnIn = true end
+                elseif Farm.SeenVisible and now - Farm.HiddenSince >= 1.5 then
+                    Farm.TurnIn = true
+                end
+            end
+
+            local active
+            if Farm.TurnIn then
+                active = false
+            elseif visible then
+                active = true
+            elseif Farm.Entry then
+                if Farm.SeenVisible then
+                    active = true       -- bảng quest vừa tắt: chờ đủ 1.5s để xác nhận rồi mới về NPC
+                else
+                    active = sinceStart < 6 or (QuestUI() == nil and sinceStart < 120)
+                end
+            else
+                active = false
+            end
+
             if active then
                 if Farm.Key and Farm.Entry then
                     target = Farm.Entry     -- đang làm dở quest cũ thì làm cho xong rồi mới sang quest mới
@@ -1599,8 +1865,8 @@ do
                     return true
                 end
             else
-                if tick() - Farm.LastStart > 2 then Farm.Key, Farm.Entry = nil, nil end
-                SetStatus("Đi nhận quest " .. Q.Mob)
+                if not Farm.TurnIn and now - Farm.LastStart > 2 then Farm.Key, Farm.Entry = nil, nil end
+                SetStatus(Farm.TurnIn and ("Hoàn thành quest, về NPC nhận " .. Q.Mob) or ("Đi nhận quest " .. Q.Mob))
                 if not Near(Q.CFrameQ, 12) then
                     MoveTo(Q.CFrameQ)
                     return true
@@ -1609,6 +1875,7 @@ do
                 if Throttle("startquest", 1.5) then
                     Invoke("StartQuest", Q.Quest, Q.LevelQ)
                     Farm.Key, Farm.Entry, Farm.LastStart = key, Q, tick()
+                    Farm.TurnIn, Farm.SeenVisible, Farm.HiddenSince = false, false, nil
                 end
                 return true
             end
@@ -1959,159 +2226,6 @@ task.spawn(pcall, function()
     end
 end)
 
---// ===================== FAST ATTACK (đánh hàng loạt + hook RegisterHit, luôn bật) =====================
-do
-    Config.FastAttackHook = true
-    _G.FastAttackHook = true
-
-    -- Cache remote để tăng tốc (quét lại mỗi 3 giây khi cần)
-    local Cached_ = { RegAttack = nil, RegHit = nil, LastScan = 0 }
-    local function RefreshRemotes(force)
-        local now = os.clock()
-        if not force and (now - Cached_.LastScan) < 3 and Cached_.RegHit and Cached_.RegHit.Parent then return end
-        Cached_.LastScan = now
-        pcall(function()
-            local modules = ReplicatedStorage:FindFirstChild("Modules")
-            local net = modules and modules:FindFirstChild("Net")
-            if net then
-                Cached_.RegAttack = net:FindFirstChild("RE/RegisterAttack")
-                Cached_.RegHit = net:FindFirstChild("RE/RegisterHit")
-            end
-        end)
-    end
-    RefreshRemotes(true)
-
-    local function FindTargetPart(hrp, range)
-        local enemies = workspace:FindFirstChild("Enemies")
-        if not enemies then return nil end
-        local bestPart, bestDistSq = nil, range * range
-        for _, mob in ipairs(enemies:GetChildren()) do
-            local hum = mob:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health > 0 then
-                local part = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
-                if part then
-                    local diff = part.Position - hrp.Position
-                    local distSq = diff.X * diff.X + diff.Y * diff.Y + diff.Z * diff.Z
-                    if distSq <= bestDistSq then bestDistSq, bestPart = distSq, part end
-                end
-            end
-        end
-        return bestPart
-    end
-
-    -- Hook RegisterHit: nếu game gọi RegisterHit không kèm tham số thì tự điền mục tiêu gần nhất.
-    -- (Bản dán vào dùng điều kiện "not checkcaller" bị ngược nên hook không bao giờ cài; đã sửa lại.)
-    if not genv.HiruFastAttackHooked then
-        genv.HiruFastAttackHooked = true
-        pcall(function()
-            if not (hookmetamethod and checkcaller and getnamecallmethod and newcclosure) then return end
-            local lp = Players.LocalPlayer
-            local old
-            old = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-                local cfg = genv.KaitunConfig
-                if genv.__KaitunRunning and cfg and cfg.FastAttackHook
-                    and getnamecallmethod() == "FireServer"
-                    and not checkcaller() and (select("#", ...) == 0 or (...) == nil)
-                    and tostring(self) == "RE/RegisterHit" then
-                    local char = lp.Character
-                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                    if hrp then
-                        local best = FindTargetPart(hrp, tonumber(cfg.AttackRange) or 85)
-                        if best then return old(self, best, {}) end
-                    end
-                end
-                return old(self, ...)
-            end))
-        end)
-    end
-
-    local lastBuso = 0
-    local function EnsureBuso(char)
-        if not Config.AutoBuso then return end
-        local now = os.clock()
-        if (now - lastBuso) < 2 then return end
-        lastBuso = now
-        if char and not char:FindFirstChild("HasBuso") then
-            task.spawn(Invoke, "Buso")
-        end
-    end
-
-    local function EquippedTool(char)
-        for _, child in ipairs(char:GetChildren()) do
-            if child:IsA("Tool") then return child end
-        end
-        return nil
-    end
-
-    local function TargetsInRange(hrp, range, maxCount)
-        local list = {}
-        local enemies = EnemiesFolder()
-        if not enemies then return list end
-        local maxDistSq = range * range
-        for _, mob in ipairs(enemies:GetChildren()) do
-            local hum = mob:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health > 0 then
-                local part = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
-                if part then
-                    local diff = part.Position - hrp.Position
-                    local distSq = diff.X * diff.X + diff.Y * diff.Y + diff.Z * diff.Z
-                    if distSq <= maxDistSq then
-                        table.insert(list, { mob = mob, part = part, distSq = distSq })
-                    end
-                end
-            end
-        end
-        if #list > 1 then
-            table.sort(list, function(a, b) return a.distSq < b.distSq end)
-        end
-        if #list > maxCount then
-            local trimmed = {}
-            for i = 1, maxCount do trimmed[i] = list[i] end
-            return trimmed
-        end
-        return list
-    end
-
-    local function FireHitBatch(targets)
-        local regAttack, regHit = Cached_.RegAttack, Cached_.RegHit
-        if regAttack and regAttack:IsA("RemoteEvent") then
-            pcall(function() regAttack:FireServer(0) end)
-        end
-        if regHit and regHit:IsA("RemoteEvent") then
-            local extra = {}
-            for i = 2, #targets do
-                extra[i - 1] = { targets[i].mob, targets[i].part }
-            end
-            pcall(function() regHit:FireServer(targets[1].part, extra) end)
-        end
-    end
-
-    -- Vòng lặp tấn công chính (có khóa chống chồng lệnh)
-    local isAttacking = false
-    task.spawn(function()
-        while Running do
-            task.wait(math.max(0.035, tonumber(Config.AttackDelay) or 0.052))
-            if not isAttacking then
-                isAttacking = true
-                local ok, err = pcall(function()
-                    local c, hrp = GetChar()
-                    if not c then return end
-                    local tool = EquippedTool(c)
-                    if not tool then return end
-                    RefreshRemotes(false)
-                    local targets = TargetsInRange(hrp, tonumber(Config.AttackRange) or 85, tonumber(Config.MaxBatchTargets) or 6)
-                    if #targets == 0 then return end
-                    EnsureBuso(c)
-                    pcall(function() tool:Activate() end)
-                    FireHitBatch(targets)
-                end)
-                if not ok and Config.Debug then warn("[Kaitun:fastattack]", err) end
-                isAttacking = false
-            end
-        end
-    end)
-end
-
 --// ===================== DỪNG SCRIPT =====================
 local function Stop()
     Running = false
@@ -2133,10 +2247,6 @@ GHI CHÚ
   Update 30 (Sea 1 rework). Bảng QuestData chỉ còn là dự phòng.
 - Level 2600+ (Sea 3): task Submerged đi tàu ngầm ở Tiki Outpost tới Submerged Island rồi làm quest ở đó (AutoSubmerged).
   Không vào được 4 lần liên tiếp thì tự nhường farm thường 2 phút rồi thử lại.
-- Fast Attack có 2 lớp: (1) click giả lập VirtualUser khi giao chiến (Config.FastAttack);
-  (2) đánh hàng loạt bản V3: cache remote, gom tối đa MaxBatchTargets mục tiêu, khóa chống chồng lệnh, nút bật/tắt kéo thả
-  (Config.FastAttackHook, AttackDelay, AttackRange, MaxBatchTargets...).
-  Đã sửa lỗi điều kiện hook (not checkcaller) khiến hook không bao giờ chạy, và vòng lặp giờ dừng đúng khi Stop.
 - Khôi phục từ bản gốc (chạy qua bộ điều phối, có ngân sách thời gian để không giữ nhân vật mãi nếu remote/tọa độ sai):
   AutoLever (Mirror Fractal + Valkyrie Helmet), AutoQuestItems (CDK/Tushita/Yama/Godhuman/SanguineArt),
   AutoSaberQuest (Sea 1, từ level 200), đồ shop Sea 2/3 (Midnight Blade, Bizarre Rifle, Ghoul Mask, Kabucha, Serpent Bow, Soul Guitar),
