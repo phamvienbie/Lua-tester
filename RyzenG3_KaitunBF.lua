@@ -22,7 +22,7 @@ local Config = {
     RedeemTimeout = 60,
     SelectWeapon = "Melee",
     AutoHaki = true,
-    FarmHeight = 12,          -- Hạ độ cao farm mặc định xuống 12 (trước là 20) để đánh chuẩn hơn
+    FarmHeight = 12,
     TweenSpeed = 170,
     MaxTweenSpeed = 220,
     SafeHealthPercent = 25,
@@ -62,7 +62,7 @@ local Config = {
 
     -- Boss ưu tiên: Dough King > rip_indra > Darkbeard
     AutoBoss = true,
-    BossHeight = 14,          -- Hạ độ cao đánh Boss xuống 14 (trước là 18)
+    BossHeight = 14,
 
     -- Quest vật phẩm Sea 3 (khôi phục từ bản gốc): Yama / Tushita / CDK / Godhuman / SanguineArt
     AutoQuestItems = true,
@@ -101,7 +101,7 @@ local Config = {
 if type(genv.KaitunConfig) == "table" then
     for k, v in pairs(genv.KaitunConfig) do Config[k] = v end
 end
-if type(Config.StatCaps) == "table" and Config.StatCaps["Blox Fruit"] then   -- tương thích bản gốc
+if type(Config.StatCaps) == "table" and Config.StatCaps["Blox Fruit"] then
     Config.StatCaps["Demon Fruit"] = Config.StatCaps["Blox Fruit"]
     Config.StatCaps["Blox Fruit"] = nil
 end
@@ -116,10 +116,10 @@ local LocalPlayer = Players.LocalPlayer
 -- CẤU HÌNH FAST ATTACK TỐC ĐỘ CAO & ỔN ĐỊNH
 -- ==========================================
 _G.FastAttackHook = true
-_G.AttackDelay = 0.055        -- Nhịp đánh ổn định, tránh rớt hit / kick
-_G.AttackRange = 65           -- Tầm đánh chuẩn khớp với hitbox vũ khí
-_G.MaxBatchTargets = 8        -- Số mục tiêu gom tối đa mỗi đợt
-_G.AutoBuso = true            -- Tự bật Buso/Haki vũ trang
+_G.AttackDelay = 0.055
+_G.AttackRange = 65
+_G.MaxBatchTargets = 8
+_G.AutoBuso = true
 
 local CachedRemotes = {
 	RegAttack = nil,
@@ -215,9 +215,6 @@ local function getBatchTargets(hrp, range, maxCount)
 	return list
 end
 
--- ==========================================
--- HOOK __NAMECALL AN TOÀN (FIX LỖI CHECKCALLER)
--- ==========================================
 if not getgenv().HiruFastAttackHookedV3 then
 	getgenv().HiruFastAttackHookedV3 = true
 
@@ -258,9 +255,6 @@ if not getgenv().HiruFastAttackHookedV3 then
 	end)
 end
 
--- ==========================================
--- HAKI & VŨ KHÍ
--- ==========================================
 local lastBusoTime = 0
 local function checkBuso(char)
 	if not _G.AutoBuso then return end
@@ -284,9 +278,6 @@ local function getEquippedTool(char)
 	return nil
 end
 
--- ==========================================
--- VÒNG LẶP FAST ATTACK (CÓ RESET COMBO CHỐNG KẸT HIT)
--- ==========================================
 local isAttacking = false
 
 task.spawn(function()
@@ -322,7 +313,6 @@ task.spawn(function()
 
 			checkBuso(char)
 
-			-- Gọi Activate + Remote chuẩn của Blox Fruits
 			pcall(function()
 				tool:Activate()
 			end)
@@ -530,7 +520,7 @@ Connect(RunService.Stepped, function()
 end)
 
 --// ===================== CHIẾN ĐẤU =====================
-local Combat = { AttackUntil = 0, LastBuso = 0 }
+local Combat = { AttackUntil = 0, LastBuso = 0, LastClick = 0 }
 
 local MeleePriority = {
     "Godhuman", "Sanguine Art", "Dragon Talon", "Electric Claw", "Death Step",
@@ -541,7 +531,7 @@ local MeleePriority = {
 local function PickWeapon(tooltip)
     local best, bestRank
     local function consider(tool)
-        if tool:IsA("Tool") and tool.ToolTip == tooltip then
+        if tool:IsA("Tool") and (tool.ToolTip == tooltip or (tooltip == "Melee" and tool.ToolTip == "")) then
             local rank = 100
             if tooltip == "Melee" then
                 for i, n in ipairs(MeleePriority) do
@@ -566,10 +556,23 @@ function Combat.Equip()
         task.spawn(Invoke, "Buso")
     end
     local want = PickWeapon(Config.SelectWeapon)
-    if want and want.Parent ~= c then hum:EquipTool(want) end
+    if want and want.Parent ~= c then
+        pcall(function() hum:EquipTool(want) end)
+    end
 end
 
-function Combat.Hit() Combat.AttackUntil = tick() + 0.5 end
+function Combat.Hit()
+    Combat.AttackUntil = tick() + 0.5
+    if tick() - Combat.LastClick > 0.12 then
+        Combat.LastClick = tick()
+        pcall(function()
+            VirtualUser:CaptureController()
+            VirtualUser:Button1Down(Vector2.new(640, 360))
+            task.wait(0.03)
+            VirtualUser:Button1Up(Vector2.new(640, 360))
+        end)
+    end
+end
 
 function Combat.Fight(targetHRP, height)
     local _, hrp = GetChar()
@@ -578,7 +581,9 @@ function Combat.Fight(targetHRP, height)
     height = height or Config.FarmHeight
     local goal = CFrame.new(targetHRP.Position + Vector3.new(0, height, 0))
     MoveTo(goal, 12)
-    if (hrp.Position - targetHRP.Position).Magnitude <= height + 35 then Combat.Hit() end
+    if (hrp.Position - targetHRP.Position).Magnitude <= height + 40 then
+        Combat.Hit()
+    end
 end
 
 Connect(LocalPlayer.Idled, function()
@@ -595,22 +600,56 @@ local function Alive(model)
     if hum and hrp and hum.Health > 0 then return hum, hrp end
 end
 
+-- Tìm quái theo tên chính xác HOẶC khớp tên linh hoạt (ví dụ "Bandit" hoặc "Bandits")
 local function NearestEnemy(name, exact)
-    local folder = EnemiesFolder()
     local _, hrp = GetChar()
-    if not folder or not hrp then return nil end
+    if not hrp then return nil end
+
     local best, bestDist
     local lname = name and name:lower()
-    for _, m in ipairs(folder:GetChildren()) do
-        local ok = (not name) or (exact and m.Name == name) or ((not exact) and m.Name:lower():find(lname, 1, true))
-        if ok then
-            local _, mh = Alive(m)
-            if mh then
-                local d = (mh.Position - hrp.Position).Magnitude
-                if not bestDist or d < bestDist then best, bestDist = m, d end
+    local roots = {}
+    if EnemiesFolder() then table.insert(roots, EnemiesFolder()) end
+
+    for _, folder in ipairs(roots) do
+        for _, m in ipairs(folder:GetChildren()) do
+            if m:IsA("Model") and not Players:GetPlayerFromCharacter(m) then
+                local mname = m.Name:lower()
+                local ok = false
+                if not name then
+                    ok = true
+                elseif exact then
+                    ok = (m.Name == name) or (mname == lname) or (mname == lname .. "s")
+                else
+                    ok = mname:find(lname, 1, true) ~= nil
+                end
+
+                if ok then
+                    local _, mh = Alive(m)
+                    if mh then
+                        local d = (mh.Position - hrp.Position).Magnitude
+                        if not bestDist or d < bestDist then best, bestDist = m, d end
+                    end
+                end
             end
         end
     end
+
+    -- Nếu chưa thấy trong Enemies, kiểm tra thêm các model quái trong Workspace có Humanoid và trùng tên
+    if not best and name then
+        for _, m in ipairs(Workspace:GetChildren()) do
+            if m:IsA("Model") and m.Parent ~= EnemiesFolder() and not Players:GetPlayerFromCharacter(m) then
+                local mname = m.Name:lower()
+                if mname == lname or mname:find(lname, 1, true) then
+                    local _, mh = Alive(m)
+                    if mh then
+                        local d = (mh.Position - hrp.Position).Magnitude
+                        if not bestDist or d < bestDist then best, bestDist = m, d end
+                    end
+                end
+            end
+        end
+    end
+
     return best
 end
 
@@ -648,8 +687,10 @@ Connect(RunService.Stepped, function()
     local folder = EnemiesFolder()
     if not folder then return end
     local center = Bring.Center
+    local targetLower = Bring.Name and Bring.Name:lower()
     for _, mob in ipairs(folder:GetChildren()) do
-        if (not Bring.Name) or mob.Name == Bring.Name then
+        local matchName = (not Bring.Name) or (mob.Name == Bring.Name) or (targetLower and mob.Name:lower():find(targetLower, 1, true))
+        if matchName then
             local hum, hrp = Alive(mob)
             if hum then
                 if (hrp.Position - center.Position).Magnitude <= Config.BringDistance then
@@ -680,10 +721,34 @@ Connect(RunService.Stepped, function()
     end
 end)
 
+-- Tìm điểm spawn thực tế của quái nếu có trong _WorldOrigin.EnemySpawns
+local function FindSpawnNear(mobName, fallbackCF)
+    local wo = Workspace:FindFirstChild("_WorldOrigin")
+    local sp = wo and wo:FindFirstChild("EnemySpawns")
+    local _, hrp = GetChar()
+    if sp and hrp and mobName then
+        local lm = mobName:lower()
+        local bestPos, bestDist
+        for _, obj in ipairs(sp:GetChildren()) do
+            if obj.Name:lower():find(lm, 1, true) then
+                local pos = obj:IsA("BasePart") and obj.Position or (obj:IsA("Model") and obj:GetPivot().Position)
+                if pos then
+                    local d = (pos - hrp.Position).Magnitude
+                    if not bestDist or d < bestDist then
+                        bestDist, bestPos = d, pos
+                    end
+                end
+            end
+        end
+        if bestPos then return CFrame.new(bestPos) end
+    end
+    return fallbackCF
+end
+
 local function Hunt(name, spawnCF, opt)
     opt = opt or {}
     local height = opt.height or Config.FarmHeight
-    local mob = NearestEnemy(name, opt.exact ~= false)
+    local mob = NearestEnemy(name, opt.exact)
     if mob then
         local _, mh = Alive(mob)
         if mh then
@@ -693,14 +758,15 @@ local function Hunt(name, spawnCF, opt)
         end
     end
     Combat.Equip()
-    MoveTo(spawnCF * CFrame.new(0, height, 0))
+    local actualSpawn = FindSpawnNear(name, spawnCF)
+    MoveTo(actualSpawn * CFrame.new(0, height, 0), 12)
     return false
 end
 
 --// ===================== BẢNG QUEST =====================
 local QuestData = {
     -- ================= SEA 1 (1 - 700) =================
-    {Min = 1, Max = 9, Quest = "BanditQuest1", LevelQ = 1, Mob = "Bandit", CFrameQ = CFrame.new(1059, 15, 1550), CFrameM = CFrame.new(1045, 27, 1560)},
+    {Min = 1, Max = 9, Quest = "BanditQuest1", LevelQ = 1, Mob = "Bandit", CFrameQ = CFrame.new(1059, 15, 1550), CFrameM = CFrame.new(1145, 17, 1634)},
     {Min = 10, Max = 14, Quest = "JungleQuest", LevelQ = 1, Mob = "Monkey", CFrameQ = CFrame.new(-1598, 35, 153), CFrameM = CFrame.new(-1448, 67, 11)},
     {Min = 15, Max = 29, Quest = "JungleQuest", LevelQ = 2, Mob = "Gorilla", CFrameQ = CFrame.new(-1598, 35, 153), CFrameM = CFrame.new(-1129, 40, -525)},
     {Min = 30, Max = 39, Quest = "BuggyQuest1", LevelQ = 1, Mob = "Pirate", CFrameQ = CFrame.new(-1141, 4, 3831), CFrameM = CFrame.new(-1103, 13, 3896)},
@@ -928,16 +994,25 @@ local function QuestUI()
     return main and main:FindFirstChild("Quest")
 end
 
--- Kiểm tra chính xác xem bảng nhiệm vụ có đang mở hay không
+-- Kiểm tra nhiệm vụ đang hoạt động qua cả UI và QuestGui mới của Blox Fruits
 local function QuestVisible()
     local q = QuestUI()
-    if not q or not q.Visible then return false end
-    -- Kiểm tra thêm container bên trong để tránh trường hợp Frame ngoài Visible nhưng bên trong đã ẩn
-    local container = q:FindFirstChild("Container")
-    if container and container:IsA("GuiObject") and not container.Visible then
-        return false
+    if q and q.Visible then
+        local container = q:FindFirstChild("Container")
+        if not container or not container:IsA("GuiObject") or container.Visible then
+            return true
+        end
     end
-    return true
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then
+        for _, guiName in ipairs({ "QuestGui", "QuestFrame" }) do
+            local g = pg:FindFirstChild(guiName)
+            if g and g:IsA("ScreenGui") and g.Enabled then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 local function QuestTitle()
@@ -945,7 +1020,18 @@ local function QuestTitle()
     local c = q and q:FindFirstChild("Container")
     local t = c and c:FindFirstChild("QuestTitle")
     local tt = t and t:FindFirstChild("Title")
-    return tt and tt.Text or ""
+    if tt and tt.Text and tt.Text ~= "" then return tt.Text end
+
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    local qg = pg and pg:FindFirstChild("QuestGui")
+    if qg then
+        for _, obj in ipairs(qg:GetDescendants()) do
+            if obj:IsA("TextLabel") and obj.Text:find("Defeat", 1, true) then
+                return obj.Text
+            end
+        end
+    end
+    return ""
 end
 
 local function Throttle(key, seconds)
@@ -1041,7 +1127,7 @@ do
     end)
 end
 
---// ---- 1b. Race V4: mở cửa Temple of Time (Mirage Island) ----
+--// ---- 1b. Race V4 ----
 do
     local Temple = { AuraAt = 0 }
     local TEMPLE_CF = CFrame.new(28286.35546875, 14896.5078125, 102.62469482422)
@@ -1173,14 +1259,14 @@ do
     end)
 end
 
---// ---- 2. Mở khóa Sea (thử nghiệm) ----
+--// ---- 2. Mở khóa Sea ----
 do
     local function Enabled()
         return Config.AutoUnlockSea and ((Sea == 1 and Level() >= 700) or (Sea == 2 and Level() >= Config.BartiloMinLevel))
     end
 
     local function KillOrGoto(name, spawnCF)
-        Hunt(name, spawnCF, { exact = false, height = Config.FarmHeight + 3 })
+        Hunt(name, spawnCF, { exact = false, height = Config.FarmHeight + 2 })
     end
 
     AddTask("SeaUnlock", Enabled, function()
@@ -1336,7 +1422,7 @@ do
     end)
 end
 
---// ---- 3b. Nâng tộc V2 (Alchemist) ----
+--// ---- 3b. Nâng tộc V2 ----
 do
     local function Evolved()
         local r = Data:FindFirstChild("Race")
@@ -1370,7 +1456,7 @@ do
     end)
 end
 
---// ---- 3c. Submerged Island (level 2600-2800) ----
+--// ---- 3c. Submerged Island ----
 do
     local WORKER_CF = CFrame.new(-16269.41, 23.98, 1371.66)
     local SUB_CENTER = Vector3.new(11256, -2138, 9888)
@@ -1445,7 +1531,7 @@ do
     end)
 end
 
---// ---- 3d. Tác vụ phụ: Gạt cần / Quest vật phẩm Sea 3 / Saber (Sea 1) ----
+--// ---- 3d. Tác vụ phụ ----
 do
     local function MakeBudget(runKey, restKey)
         local B = { Start = nil, Until = 0 }
@@ -1769,12 +1855,12 @@ do
     end
 end
 
---// ---- 4. Farm level (ĐÃ FIX LỖI BAY VỀ NPC KHI ĐANG FARM) ----
+--// ---- 4. Farm level (FIX NHẬN NV XONG BAY ĐI ĐÁNH QUÁI NGAY) ----
 do
     local Farm = {
-        ActiveEntry = nil,      -- Lưu lại thông tin nhiệm vụ đang làm dở
-        LastStart = 0,          -- Thời điểm bấm nhận nhiệm vụ gần nhất
-        WaitingQuest = false,   -- Cờ báo đang chờ UI nhiệm vụ hiện lên sau khi gọi Invoke
+        ActiveEntry = nil,
+        LastStart = 0,
+        WaitingQuest = false,
     }
 
     local function QuestProgress()
@@ -1790,65 +1876,59 @@ do
             local now = tick()
             local visible = QuestVisible()
 
-            -- Trường hợp 1: Bảng nhiệm vụ ĐANG HIỂN THỊ trên màn hình -> Tuyệt đối không bay về NPC
             if visible then
                 Farm.WaitingQuest = false
 
                 local n, m = QuestProgress()
-                -- Nếu đã đánh đủ số lượng (vd: 8/8) thì đứng chờ 0.5s để game tự trả thưởng & tắt bảng NV
                 if n and m and n >= m then
                     SetStatus("Đang hoàn thành nhiệm vụ...")
                     return true
                 end
 
-                -- Nếu đang có dữ liệu nhiệm vụ đã nhận từ trước, tiếp tục đánh quái của nhiệm vụ đó cho tới khi xong (kể cả khi vừa lên cấp mở quest mới)
                 if Farm.ActiveEntry then
                     target = Farm.ActiveEntry
+                elseif QuestMatches(QuestTitle(), Q.Mob) then
+                    Farm.ActiveEntry = Q
+                    target = Q
                 else
-                    -- Nếu người chơi đã nhận sẵn nhiệm vụ trước khi bật script
-                    if QuestMatches(QuestTitle(), Q.Mob) then
-                        Farm.ActiveEntry = Q
-                        target = Q
-                    else
-                        -- Nhiệm vụ hiện tại không khớp với cấp độ -> Hủy để nhận lại
-                        if Throttle("abandon", 2) then
-                            Invoke("AbandonQuest")
-                        end
-                        return true
+                    if Throttle("abandon", 2) then
+                        Invoke("AbandonQuest")
                     end
+                    return true
                 end
-
-            -- Trường hợp 2: Bảng nhiệm vụ KHÔNG HIỂN THỊ
             else
-                -- Nếu vừa mới gửi lệnh nhận nhiệm vụ (trong vòng 3.5 giây), đứng chờ UI load chứ không bay đi bay lại
-                if Farm.WaitingQuest and (now - Farm.LastStart) < 3.5 then
+                -- Nếu đã bấm nhận nhiệm vụ thành công và đã qua 0.4s (đủ để server xử lý quest), chuyển ngay sang đánh quái thay vì đứng chờ 3.5s
+                if Farm.WaitingQuest and (now - Farm.LastStart) < 0.4 then
                     SetStatus("Đang nhận nhiệm vụ " .. Q.Mob .. "...")
                     return true
                 end
 
-                -- Reset trạng thái nhiệm vụ cũ vì bảng nhiệm vụ đã tắt (đã trả xong hoặc bị hủy)
-                Farm.ActiveEntry = nil
-                Farm.WaitingQuest = false
+                if not Farm.WaitingQuest then
+                    Farm.ActiveEntry = nil
+                    SetStatus("Đi nhận quest: " .. Q.Mob)
+                    if not Near(Q.CFrameQ, 12) then
+                        MoveTo(Q.CFrameQ)
+                        return true
+                    end
 
-                SetStatus("Đi nhận quest: " .. Q.Mob)
-                if not Near(Q.CFrameQ, 12) then
-                    MoveTo(Q.CFrameQ)
+                    StopTween()
+                    if Throttle("startquest", 1.5) then
+                        Farm.LastStart = tick()
+                        Farm.WaitingQuest = true
+                        Farm.ActiveEntry = Q
+                        Invoke("StartQuest", Q.Quest, Q.LevelQ)
+                    end
                     return true
+                else
+                    -- Sau 0.4s gửi StartQuest: hết chờ, cho phép bay đi farm quái luôn (kể cả khi UI Quest chưa kịp hiện)
+                    Farm.WaitingQuest = false
+                    target = Farm.ActiveEntry or Q
                 end
-
-                StopTween()
-                if Throttle("startquest", 1.5) then
-                    Farm.LastStart = tick()
-                    Farm.WaitingQuest = true
-                    Farm.ActiveEntry = Q
-                    Invoke("StartQuest", Q.Quest, Q.LevelQ)
-                end
-                return true
             end
         end
 
         SetStatus("Farm " .. target.Mob .. " (Lv " .. tostring(Level()) .. ")")
-        Hunt(target.Mob, target.CFrameM, { bring = true, height = Config.FarmHeight })
+        Hunt(target.Mob, target.CFrameM, { exact = false, bring = true, height = Config.FarmHeight })
         return true
     end)
 end
