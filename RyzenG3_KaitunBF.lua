@@ -23,8 +23,8 @@ local Config = {
     SelectWeapon = "Melee",
     AutoHaki = true,
     FarmHeight = 12,
-    TweenSpeed = 170,
-    MaxTweenSpeed = 220,
+    TweenSpeed = 145,
+    MaxTweenSpeed = 185,
     SafeHealthPercent = 25,
 
     -- Chỉ số
@@ -458,13 +458,15 @@ if Config.AutoRedeemCode and not genv.__KaitunRedeemed then
     end
 end
 
---// ===================== DI CHUYỂN =====================
-local CurrentTween, TweenGoal
+--// ===================== DI CHUYỂN CHỐNG KÉO NGƯỢC (ANTI RUBBER-BAND) =====================
+local CurrentTween, TweenGoal, TweenStartedAt
+local LastValidPos = nil
+local RubberBandCount = 0
 
 local function StopTween()
     if CurrentTween then
         pcall(function() CurrentTween:Cancel() end)
-        CurrentTween, TweenGoal = nil, nil
+        CurrentTween, TweenGoal, TweenStartedAt = nil, nil, nil
     end
 end
 
@@ -473,26 +475,76 @@ local function Near(cf, radius)
     return hrp ~= nil and (hrp.Position - cf.Position).Magnitude <= (radius or 10)
 end
 
+-- Phát hiện nếu nhân vật bị kéo giật lùi (rubber-band) xa khỏi vị trí đã đi tới
+Connect(RunService.Heartbeat, function()
+    local c, hrp, hum = GetChar()
+    if not c or not hrp or not hum then return end
+
+    if CurrentTween and CurrentTween.PlaybackState == Enum.PlaybackState.Playing and TweenGoal then
+        -- Giữ vận tốc sạch để tránh physics của Roblox đẩy ngược
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+
+        local elapsed = tick() - (TweenStartedAt or tick())
+        local speed = math.clamp(tonumber(Config.TweenSpeed) or 145, 60, tonumber(Config.MaxTweenSpeed) or 185)
+        -- Nếu chạy quá thời gian dự kiến + 2.5s mà bị kẹt hoặc kéo ngược, hủy tween cũ để tạo lại mượt hơn
+        local distTotal = (TweenGoal.Position - (LastValidPos or hrp.Position)).Magnitude
+        local expectedTime = math.max(0.2, distTotal / speed)
+        if elapsed > expectedTime + 2.5 then
+            StopTween()
+            return
+        end
+    end
+
+    if LastValidPos and CurrentTween and CurrentTween.PlaybackState == Enum.PlaybackState.Playing then
+        local movedSinceLast = (hrp.Position - LastValidPos).Magnitude
+        -- Nếu đột ngột bị kéo giật lùi hơn 65 studs khi đang bay
+        if movedSinceLast > 65 and (hrp.Position - (TweenGoal and TweenGoal.Position or hrp.Position)).Magnitude > movedSinceLast then
+            RubberBandCount = RubberBandCount + 1
+            StopTween()
+            -- Nếu bị kéo ngược liên tục, tự động giảm nhẹ TweenSpeed tạm thời để server đồng bộ vị trí
+            if RubberBandCount >= 2 then
+                Config.TweenSpeed = math.max(100, (tonumber(Config.TweenSpeed) or 145) - 15)
+                RubberBandCount = 0
+            end
+        end
+    end
+    LastValidPos = hrp.Position
+end)
+
 local function MoveTo(cf, snap)
-    local _, hrp = GetChar()
-    if not hrp then return false end
+    local c, hrp, hum = GetChar()
+    if not c or not hrp or not hum then return false end
     snap = snap or 8
     local dist = (cf.Position - hrp.Position).Magnitude
+
     if dist <= snap then
         StopTween()
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
         hrp.CFrame = cf
+        LastValidPos = cf.Position
         return true
     end
+
     if CurrentTween and TweenGoal
         and CurrentTween.PlaybackState == Enum.PlaybackState.Playing
-        and (TweenGoal.Position - cf.Position).Magnitude < 4 then
+        and (TweenGoal.Position - cf.Position).Magnitude < 5 then
         return false
     end
+
     StopTween()
     TweenGoal = cf
-    local speed = math.clamp(tonumber(Config.TweenSpeed) or 170, 60, tonumber(Config.MaxTweenSpeed) or 220)
+    TweenStartedAt = tick()
+
+    -- Tắt Sit nếu nhân vật lỡ ngồi ghế/thuyền khiến server kéo ngược
+    if hum.Sit then
+        hum.Sit = false
+    end
+
+    local speed = math.clamp(tonumber(Config.TweenSpeed) or 145, 60, tonumber(Config.MaxTweenSpeed) or 185)
     CurrentTween = TweenService:Create(hrp,
-        TweenInfo.new(math.max(0.05, dist / speed), Enum.EasingStyle.Linear),
+        TweenInfo.new(math.max(0.08, dist / speed), Enum.EasingStyle.Linear),
         { CFrame = cf })
     CurrentTween:Play()
     return false
@@ -512,6 +564,8 @@ Connect(RunService.Stepped, function()
             hover.MaxForce = Vector3.new(1e5, 1e5, 1e5)
             hover.Velocity = Vector3.zero
             hover.Parent = hrp
+        else
+            hover.Velocity = Vector3.zero
         end
         hrp.AssemblyAngularVelocity = Vector3.zero
     elseif hover then
@@ -600,7 +654,6 @@ local function Alive(model)
     if hum and hrp and hum.Health > 0 then return hum, hrp end
 end
 
--- Tìm quái theo tên chính xác HOẶC khớp tên linh hoạt (ví dụ "Bandit" hoặc "Bandits")
 local function NearestEnemy(name, exact)
     local _, hrp = GetChar()
     if not hrp then return nil end
@@ -634,7 +687,6 @@ local function NearestEnemy(name, exact)
         end
     end
 
-    -- Nếu chưa thấy trong Enemies, kiểm tra thêm các model quái trong Workspace có Humanoid và trùng tên
     if not best and name then
         for _, m in ipairs(Workspace:GetChildren()) do
             if m:IsA("Model") and m.Parent ~= EnemiesFolder() and not Players:GetPlayerFromCharacter(m) then
@@ -721,7 +773,6 @@ Connect(RunService.Stepped, function()
     end
 end)
 
--- Tìm điểm spawn thực tế của quái nếu có trong _WorldOrigin.EnemySpawns
 local function FindSpawnNear(mobName, fallbackCF)
     local wo = Workspace:FindFirstChild("_WorldOrigin")
     local sp = wo and wo:FindFirstChild("EnemySpawns")
@@ -789,7 +840,7 @@ local QuestData = {
     {Min = 450, Max = 474, Quest = "SkyExp1Quest", LevelQ = 1, Mob = "God's Guard", CFrameQ = CFrame.new(-4721, 843, -1949), CFrameM = CFrame.new(-4710, 845, -1927)},
     {Min = 475, Max = 524, Quest = "SkyExp1Quest", LevelQ = 2, Mob = "Shanda", CFrameQ = CFrame.new(-7859, 5544, -381), CFrameM = CFrame.new(-7678, 5566, -497)},
     {Min = 525, Max = 549, Quest = "SkyExp2Quest", LevelQ = 1, Mob = "Royal Squad", CFrameQ = CFrame.new(-7906, 5634, -1411), CFrameM = CFrame.new(-7624, 5658, -1467)},
-    {Min = 550, Max = 624, Quest = "SkyExp2Quest", LevelQ = 2, Mob = "Royal Soldier", CFrameQ = CFrame.new(-7906, 5634, -1411), CFrameM = CFrame.new(-7836, 5645, -1790)},
+    {Min = 550, Max = 624, Quest = "SkyExp2Quest", CFrameQ = CFrame.new(-7906, 5634, -1411), LevelQ = 2, Mob = "Royal Soldier", CFrameM = CFrame.new(-7836, 5645, -1790)},
     {Min = 625, Max = 649, Quest = "FountainQuest", LevelQ = 1, Mob = "Galley Pirate", CFrameQ = CFrame.new(5259, 37, 4050), CFrameM = CFrame.new(5551, 78, 3930)},
     {Min = 650, Max = 699, Quest = "FountainQuest", LevelQ = 2, Mob = "Galley Captain", CFrameQ = CFrame.new(5259, 37, 4050), CFrameM = CFrame.new(5441, 42, 4950)},
 
@@ -988,50 +1039,71 @@ local function QuestMatches(title, mob)
     return false
 end
 
-local function QuestUI()
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    local main = pg and pg:FindFirstChild("Main")
-    return main and main:FindFirstChild("Quest")
+local function IsGuiActuallyVisible(obj)
+    local cur = obj
+    while cur and cur ~= LocalPlayer do
+        if cur:IsA("ScreenGui") then
+            if not cur.Enabled then return false end
+        elseif cur:IsA("GuiObject") then
+            if not cur.Visible then return false end
+        end
+        cur = cur.Parent
+    end
+    return true
 end
 
--- Kiểm tra nhiệm vụ đang hoạt động qua cả UI và QuestGui mới của Blox Fruits
-local function QuestVisible()
-    local q = QuestUI()
-    if q and q.Visible then
-        local container = q:FindFirstChild("Container")
-        if not container or not container:IsA("GuiObject") or container.Visible then
-            return true
-        end
-    end
+local function FindQuestBoard()
     local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if pg then
-        for _, guiName in ipairs({ "QuestGui", "QuestFrame" }) do
-            local g = pg:FindFirstChild(guiName)
-            if g and g:IsA("ScreenGui") and g.Enabled then
-                return true
+    if not pg then return nil, "" end
+
+    local main = pg:FindFirstChild("Main")
+    local q = main and main:FindFirstChild("Quest")
+    if q and IsGuiActuallyVisible(q) then
+        local c = q:FindFirstChild("Container")
+        local t = c and c:FindFirstChild("QuestTitle")
+        local tt = t and t:FindFirstChild("Title")
+        if tt and tt:IsA("TextLabel") and tt.Text ~= "" then
+            return q, tt.Text
+        end
+        for _, d in ipairs(q:GetDescendants()) do
+            if d:IsA("TextLabel") and d.Text ~= "" and IsGuiActuallyVisible(d) then
+                local low = d.Text:lower()
+                if low:find("defeat", 1, true) or low:find("bandit", 1, true) or d.Text:find("%d+%s*/%s*%d+") then
+                    return q, d.Text
+                end
             end
         end
     end
-    return false
+
+    for _, gui in ipairs(pg:GetChildren()) do
+        if gui:IsA("ScreenGui") and gui.Enabled and gui.Name ~= "LoadingScreen" then
+            for _, d in ipairs(gui:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Text ~= "" and IsGuiActuallyVisible(d) then
+                    local low = d.Text:lower()
+                    if (low:find("defeat", 1, true) and d.Text:find("%d+%s*/%s*%d+")) or low:find("defeat 5 bandits", 1, true) then
+                        return d, d.Text
+                    end
+                end
+            end
+        end
+    end
+
+    return nil, ""
+end
+
+local function QuestUI()
+    local board = select(1, FindQuestBoard())
+    return board
+end
+
+local function QuestVisible()
+    local board, title = FindQuestBoard()
+    return board ~= nil or title ~= ""
 end
 
 local function QuestTitle()
-    local q = QuestUI()
-    local c = q and q:FindFirstChild("Container")
-    local t = c and c:FindFirstChild("QuestTitle")
-    local tt = t and t:FindFirstChild("Title")
-    if tt and tt.Text and tt.Text ~= "" then return tt.Text end
-
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    local qg = pg and pg:FindFirstChild("QuestGui")
-    if qg then
-        for _, obj in ipairs(qg:GetDescendants()) do
-            if obj:IsA("TextLabel") and obj.Text:find("Defeat", 1, true) then
-                return obj.Text
-            end
-        end
-    end
-    return ""
+    local _, title = FindQuestBoard()
+    return title
 end
 
 local function Throttle(key, seconds)
@@ -1855,17 +1927,51 @@ do
     end
 end
 
---// ---- 4. Farm level (FIX NHẬN NV XONG BAY ĐI ĐÁNH QUÁI NGAY) ----
+--// ---- 4. Farm level (chống kéo ngược về lại NPC NV) ----
 do
     local Farm = {
         ActiveEntry = nil,
         LastStart = 0,
         WaitingQuest = false,
+        QuestGraceUntil = 0,
+        LockedTitle = "",
     }
 
     local function QuestProgress()
-        local n, m = QuestTitle():match("%((%d+)%s*/%s*(%d+)%)")
+        local title = QuestTitle()
+        if title == "" then return nil end
+        local n, m = title:match("%((%d+)%s*/%s*(%d+)%)")
         if n and m then return tonumber(n), tonumber(m) end
+        -- Kiểm tra số lượng quái trên các TextLabel gần bảng quest (ví dụ "0/5")
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            for _, d in ipairs(pg:GetDescendants()) do
+                if d:IsA("TextLabel") and IsGuiActuallyVisible(d) then
+                    local a, b = d.Text:match("^%s*(%d+)%s*/%s*(%d+)%s*$")
+                    if a and b then
+                        return tonumber(a), tonumber(b)
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function HasActiveQuestConfirmed()
+        local board, title = FindQuestBoard()
+        if board or title ~= "" then
+            if title ~= "" then
+                Farm.LockedTitle = title
+            end
+            return true
+        end
+        if Farm.WaitingQuest and (tick() - Farm.LastStart) < 2.0 then
+            return true
+        end
+        if tick() < Farm.QuestGraceUntil and Farm.ActiveEntry then
+            return true
+        end
+        return false
     end
 
     AddTask("Farm", function() return Config.AutoFarm end, function()
@@ -1873,57 +1979,65 @@ do
         local target = Q
 
         if Config.AutoQuest then
-            local now = tick()
-            local visible = QuestVisible()
+            local active = HasActiveQuestConfirmed()
 
-            if visible then
+            if active then
                 Farm.WaitingQuest = false
 
+                local currentTitle = QuestTitle()
+                if currentTitle ~= "" then
+                    Farm.LockedTitle = currentTitle
+                end
+
                 local n, m = QuestProgress()
-                if n and m and n >= m then
-                    SetStatus("Đang hoàn thành nhiệm vụ...")
+                if n and m and m > 0 and n >= m then
+                    Farm.ActiveEntry = nil
+                    Farm.LockedTitle = ""
+                    Farm.QuestGraceUntil = 0
+                    SetStatus("Đã đủ NV -> quay về nhận NV mới...")
+                    local cfQ = (target and target.CFrameQ) or Q.CFrameQ
+                    if not Near(cfQ, 12) then
+                        MoveTo(cfQ)
+                    else
+                        StopTween()
+                        if Throttle("startquest", 1.5) then
+                            Farm.LastStart = tick()
+                            Farm.WaitingQuest = true
+                            Farm.ActiveEntry = Q
+                            Invoke("StartQuest", Q.Quest, Q.LevelQ)
+                        end
+                    end
                     return true
                 end
 
+                -- Đã có bảng NV ("Defeat 5 Bandits", "0/5"...) thì luôn ưu tiên farm luôn, KHÔNG kéo về NPC
                 if Farm.ActiveEntry then
                     target = Farm.ActiveEntry
-                elseif QuestMatches(QuestTitle(), Q.Mob) then
+                elseif currentTitle ~= "" and QuestMatches(currentTitle, Q.Mob) then
                     Farm.ActiveEntry = Q
                     target = Q
-                else
-                    if Throttle("abandon", 2) then
-                        Invoke("AbandonQuest")
-                    end
-                    return true
+                elseif currentTitle ~= "" then
+                    Farm.ActiveEntry = Q
+                    target = Q
                 end
             else
-                -- Nếu đã bấm nhận nhiệm vụ thành công và đã qua 0.4s (đủ để server xử lý quest), chuyển ngay sang đánh quái thay vì đứng chờ 3.5s
-                if Farm.WaitingQuest and (now - Farm.LastStart) < 0.4 then
-                    SetStatus("Đang nhận nhiệm vụ " .. Q.Mob .. "...")
+                Farm.ActiveEntry = nil
+                Farm.LockedTitle = ""
+                SetStatus("Đi nhận quest: " .. Q.Mob)
+                if not Near(Q.CFrameQ, 12) then
+                    MoveTo(Q.CFrameQ)
                     return true
                 end
 
-                if not Farm.WaitingQuest then
-                    Farm.ActiveEntry = nil
-                    SetStatus("Đi nhận quest: " .. Q.Mob)
-                    if not Near(Q.CFrameQ, 12) then
-                        MoveTo(Q.CFrameQ)
-                        return true
-                    end
-
-                    StopTween()
-                    if Throttle("startquest", 1.5) then
-                        Farm.LastStart = tick()
-                        Farm.WaitingQuest = true
-                        Farm.ActiveEntry = Q
-                        Invoke("StartQuest", Q.Quest, Q.LevelQ)
-                    end
-                    return true
-                else
-                    -- Sau 0.4s gửi StartQuest: hết chờ, cho phép bay đi farm quái luôn (kể cả khi UI Quest chưa kịp hiện)
-                    Farm.WaitingQuest = false
-                    target = Farm.ActiveEntry or Q
+                StopTween()
+                if Throttle("startquest", 1.5) then
+                    Farm.LastStart = tick()
+                    Farm.WaitingQuest = true
+                    Farm.QuestGraceUntil = tick() + 2.0
+                    Farm.ActiveEntry = Q
+                    Invoke("StartQuest", Q.Quest, Q.LevelQ)
                 end
+                return true
             end
         end
 
