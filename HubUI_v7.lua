@@ -225,18 +225,31 @@ local function parseIcon(a, b)
 	local img, pos, siz
 	if type(a) == "table" then
 		local meta = type(a[2]) == "table" and a[2] or a
-		img = a[1] or a.Image or a.Id
+		img = a[1] or a.Image or a.Id or meta.Image or meta.Id
 		pos = toV2(meta.ImageRectPosition or meta.ImageRectOffset)
 		siz = toV2(meta.ImageRectSize)
-	elseif type(a) == "string" and type(b) == "table" then
+	elseif (type(a) == "string" or type(a) == "number") and type(b) == "table" then
 		img = a
 		pos = toV2(b.ImageRectPosition or b.ImageRectOffset)
 		siz = toV2(b.ImageRectSize)
 	end
+	-- Image là số thứ tự spritesheet -> tra bảng Spritesheets của module để lấy rbxassetid
+	if (type(img) == "number" or (type(img) == "string" and img:match("^%d+$"))) and LucideLib then
+		local sp = type(LucideLib.Spritesheets) == "table" and LucideLib.Spritesheets[tostring(img)]
+		if sp then img = sp end
+	end
 	if type(img) == "number" then img = "rbxassetid://" .. img end
+	if type(img) == "string" and img:match("^%d+$") then img = "rbxassetid://" .. img end
 	if type(img) ~= "string" or img == "" then return nil end
-	if not (pos and siz) or siz.X <= 0 or siz.Y <= 0 then return nil end -- thiếu ô cắt -> sẽ hiện cả tấm sheet, bỏ
+	if not (pos and siz) or siz.X <= 0 or siz.Y <= 0 then return nil end
 	return {Image = img, Pos = pos, Size = siz}
+end
+
+local function dumpShape(v, depth)
+	if type(v) ~= "table" or depth > 1 then return tostring(v) end
+	local out = {}
+	for k, x in pairs(v) do out[#out + 1] = tostring(k) .. "=" .. dumpShape(x, depth + 1) end
+	return "{" .. table.concat(out, ", ") .. "}"
 end
 
 local function lucideLookup(name)
@@ -252,13 +265,16 @@ local function lucideLookup(name)
 			function() return LucideLib.Icon("lucide:" .. cand) end,
 		}) do
 			local ok, a, b = pcall(f)
-			if ok and a ~= nil then shape = typeof(a); data = parseIcon(a, b) end
+			if ok and a ~= nil then
+				shape = typeof(a) .. " " .. dumpShape(a, 0) .. (b ~= nil and (" | " .. dumpShape(b, 0)) or "")
+				data = parseIcon(a, b)
+			end
 			if data then break end
 		end
 		if data then break end
 	end
 	LucideCache[name] = data or false
-	if not data and lucideFails < 6 then
+	if not data and lucideFails < 3 then
 		lucideFails = lucideFails + 1
 		warn("[RyzenHub] Lucide icon not found: " .. name .. (shape and (" (module trả về " .. shape .. ")") or ""))
 	end
