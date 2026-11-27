@@ -210,6 +210,7 @@ local function lucideWhenReady(cb)
 	table.insert(LucideWait, cb)
 	lucideInit()
 end
+lucideInit() -- tải Lucide ngay từ đầu để icon sẵn sàng trước khi dựng UI
 
 local function toV2(v)
 	if typeof(v) == "Vector2" then return v end
@@ -600,19 +601,20 @@ local function drawFallback(name, root, s, col)
 end
 
 -- Icon(name, parent, size, color) -> {Root = Frame, SetColor = fn, Destroy = fn}
+-- Ưu tiên ảnh Lucide (spritesheet, ImageLabel => nét, không răng cưa, không méo).
+-- Chỉ khi không tải được / không có icon mới vẽ bằng Frame (Ryzen Icons / fallback).
 local function Icon(name, parent, size, col)
 	col = col or C.Text
 	name = (tostring(name):gsub("^lucide:", ""))
-	local custom = getPolys(name)
-	if custom then return drawCustom(name, custom, parent, size, col) end
+	size = math.max(1, math.floor(size + .5)) -- kích thước nguyên => không bị mờ do nội suy nửa pixel
 	local root = new("Frame", {
 		Name = "Icon_" .. name, Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, BorderSizePixel = 0, Parent = parent,
 	})
 	local img = new("ImageLabel", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit,
-		ImageColor3 = col, Visible = false, Parent = root,
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Stretch,
+		ResampleMode = Enum.ResamplerMode.Default, ImageColor3 = col, Visible = false, BorderSizePixel = 0, Parent = root,
 	})
-	local parts, cur = nil, col
+	local custom, parts, cur = nil, nil, col
 	lucideWhenReady(function()
 		if not root.Parent then return end
 		local d = lucideLookup(name)
@@ -620,7 +622,13 @@ local function Icon(name, parent, size, col)
 			img.Image = d.Image
 			img.ImageRectOffset = d.Pos
 			img.ImageRectSize = d.Size
+			img.ImageColor3 = cur
 			img.Visible = true
+			return
+		end
+		local polys = getPolys(name)
+		if polys then
+			custom = drawCustom(name, polys, root, size, cur)
 		else
 			parts = drawFallback(name, root, size, cur)
 		end
@@ -629,6 +637,7 @@ local function Icon(name, parent, size, col)
 	function api.SetColor(c)
 		cur = c
 		tw(img, {ImageColor3 = c}, .18)
+		if custom then custom.SetColor(c) end
 		if parts then for _, pr in ipairs(parts) do tw(pr[1], {[pr[2]] = c}, .18) end end
 	end
 	function api.Destroy() root:Destroy() end
@@ -1304,8 +1313,9 @@ function Window:_track(conn) table.insert(self._conns, conn); return conn end
 function UI:CreateWindow(cfg)
 	cfg = cfg or {}
 	-- chờ Lucide tải xong (tối đa 4s) để icon hiện ngay, không bị "nhảy"
+	lucideInit()
 	local t0 = os.clock()
-	while LucideState == "loading" and os.clock() - t0 < 4 do task.wait() end
+	while (LucideState == "loading" or LucideState == "idle") and os.clock() - t0 < 6 do task.wait() end
 
 	local self = setmetatable({
 		Tabs = {}, Flags = {}, Current = nil, Open = false, Maximized = false,
