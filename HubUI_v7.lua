@@ -1,58 +1,57 @@
--- THƯ VIỆN (không có demo). Dùng: local UI = loadstring(game:HttpGet("<url của file này>"))()
--- Ryzen Hub v8 (căn chỉnh lại UI cho màn hình ngang/điện thoại) — Monochrome (đen/trắng) + Dynamic Island (tên + sóng nhạc) + notify Loading / Loaded successfully
--- Phím RightCtrl (PC) hoặc chạm vào đảo (mobile) để ẩn/hiện
+-- Ryzen Hub UI v8 — gọn hơn, API kiểu WindUI, icon Lucide (lucide.dev)
+-- Dùng: local UI = loadstring(game:HttpGet("<url của file này>"))()
+-- Xem ví dụ ở cuối file (phần EXAMPLE, đang để comment)
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 local lp = Players.LocalPlayer
 
---------------------------------------------------------------------- THEME
+--------------------------------------------------------------------- THEME (đen/trắng)
 local function RGB(r, g, b) return Color3.fromRGB(r, g, b) end
 
 local C = {
 	White   = RGB(255, 255, 255),
 	Black   = RGB(0, 0, 0),
-	Bg1     = RGB(17, 17, 17),
-	Bg2     = RGB(8, 8, 8),
-	Panel1  = RGB(23, 23, 23),
-	Panel2  = RGB(15, 15, 15),
-	Item    = RGB(27, 27, 27),
-	ItemHov = RGB(36, 36, 36),
-	Stroke  = RGB(48, 48, 48),
-	Text    = RGB(243, 243, 243),
-	Sub     = RGB(128, 128, 128),
-	Off     = RGB(36, 36, 36),
-	Knob    = RGB(118, 118, 118),
-	-- thanh tiêu đề trắng
-	BarBg1  = RGB(22, 22, 22),
-	BarBg2  = RGB(12, 12, 12),
-	BarText = RGB(243, 243, 243),
-	BarSub  = RGB(128, 128, 128),
+	Bg1     = RGB(18, 18, 18),
+	Bg2     = RGB(9, 9, 9),
+	Panel   = RGB(14, 14, 14),
+	Item    = RGB(26, 26, 26),
+	ItemHov = RGB(34, 34, 34),
+	Field   = RGB(15, 15, 15),
+	Stroke  = RGB(46, 46, 46),
+	Text    = RGB(240, 240, 240),
+	Sub     = RGB(125, 125, 125),
+	Off     = RGB(38, 38, 38),
+	Knob    = RGB(120, 120, 120),
 }
 
--- FONT (đổi ở đây là đổi toàn bộ giao diện)
 local function font(name, weight, fallback)
 	local ok, f = pcall(function() return Font.fromName(name, weight) end)
 	if ok and f then return f end
 	return Font.fromEnum(fallback)
 end
 local F = {
-	Brand = font("Michroma", Enum.FontWeight.Regular, Enum.Font.Michroma),      -- chữ "RYZEN HUB"
+	Brand = font("Michroma", Enum.FontWeight.Regular, Enum.Font.Michroma),
 	Reg   = font("Montserrat", Enum.FontWeight.Medium, Enum.Font.Gotham),
+	Semi  = font("Montserrat", Enum.FontWeight.SemiBold, Enum.Font.GothamMedium),
 	Bold  = font("Montserrat", Enum.FontWeight.Bold, Enum.Font.GothamBold),
 }
 
-local ISLAND_TOP = 12                    -- cách mép trên màn hình
-local IDLE = Vector2.new(176, 40)        -- đảo thu gọn
-local NOTI = Vector2.new(300, 62)        -- đảo khi có thông báo
-local TOP = ISLAND_TOP + IDLE.Y + 8      -- vị trí đỉnh cửa sổ
-local NORMAL = Vector2.new(560, 330)     -- kích thước TỐI THIỂU của cửa sổ (đơn vị UI, trước khi scale)
-local MINSIZE = Vector2.new(340, 240)     -- cỡ nhỏ nhất khi kéo thu nhỏ bằng góc dưới phải
-local MAXW, MAXH = 720, 380              -- kích thước tối đa khi màn hình rộng
-local FOOT = 28                          -- chiều cao thanh footer
-local COMPACT = UIS.TouchEnabled and not UIS.KeyboardEnabled  -- mobile: tab nhỏ gọn hơn
+--------------------------------------------------------------------- KÍCH THƯỚC (đơn vị UI, trước khi scale)
+local ISL_TOP   = 8                          -- đảo cách mép trên
+local IDLE      = Vector2.new(138, 30)       -- đảo thu gọn
+local NOTI      = Vector2.new(258, 52)       -- đảo khi có thông báo
+local TOP       = ISL_TOP + IDLE.Y + 6       -- đỉnh cửa sổ
+local TITLE_H   = 34
+local SIDE_W    = 112                        -- sidebar đầy đủ
+local SIDE_MINI = 40                         -- sidebar chỉ icon (cửa sổ hẹp)
+local MINI_AT   = 390                        -- cửa sổ hẹp hơn mức này -> sidebar chỉ icon
+local DEF_SIZE  = Vector2.new(470, 285)      -- cỡ mặc định
+local MIN_SIZE  = Vector2.new(320, 210)
+local COMPACT   = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 --------------------------------------------------------------------- HELPERS
 local function new(class, props, children)
@@ -66,21 +65,37 @@ local function pill() return new("UICorner", {CornerRadius = UDim.new(1, 0)}) en
 local function stroke(col, t)
 	return new("UIStroke", {Color = col or C.Stroke, Thickness = t or 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border})
 end
-local function pad(p)
-	return new("UIPadding", {PaddingTop = UDim.new(0, p), PaddingBottom = UDim.new(0, p), PaddingLeft = UDim.new(0, p), PaddingRight = UDim.new(0, p)})
+local function padding(t, r, b, l)
+	return new("UIPadding", {
+		PaddingTop = UDim.new(0, t), PaddingRight = UDim.new(0, r or t),
+		PaddingBottom = UDim.new(0, b or t), PaddingLeft = UDim.new(0, l or r or t),
+	})
 end
-local function list(gap)
-	return new("UIListLayout", {Padding = UDim.new(0, gap or 6), SortOrder = Enum.SortOrder.LayoutOrder})
+local function list(gap, dir)
+	return new("UIListLayout", {
+		Padding = UDim.new(0, gap or 6), SortOrder = Enum.SortOrder.LayoutOrder,
+		FillDirection = dir or Enum.FillDirection.Vertical,
+	})
 end
 local function label(text, size, color, face)
 	return new("TextLabel", {
-		BackgroundTransparency = 1, Text = text, TextSize = size or 13,
+		BackgroundTransparency = 1, Text = text, TextSize = size or 11,
 		TextColor3 = color or C.Text, TextXAlignment = Enum.TextXAlignment.Left,
 		FontFace = face or F.Reg, TextTruncate = Enum.TextTruncate.AtEnd,
 	})
 end
+-- nhãn tự xuống dòng + tự cao
+local function wrapLabel(text, size, color, face)
+	local l = label(text, size, color, face)
+	l.TextWrapped = true
+	l.TextTruncate = Enum.TextTruncate.None
+	l.TextYAlignment = Enum.TextYAlignment.Top
+	l.AutomaticSize = Enum.AutomaticSize.Y
+	l.Size = UDim2.new(1, 0, 0, 0)
+	return l
+end
 
--- tween: tự huỷ tween cũ cùng thuộc tính (tránh kẹt trạng thái khi bấm nhanh)
+-- tween: tự huỷ tween cũ cùng thuộc tính
 local Active = setmetatable({}, {__mode = "k"})
 local function tw(o, props, t, style, dir)
 	local act = Active[o]
@@ -94,14 +109,23 @@ local function tw(o, props, t, style, dir)
 	return tween
 end
 
--- Gradient xoay liên tục (1 vòng Heartbeat chung)
-local Spin = setmetatable({}, {__mode = "k"})
+local function fire(cb, ...)
+	if type(cb) ~= "function" then return end
+	local args = table.pack(...)
+	task.spawn(function()
+		local ok, err = pcall(cb, table.unpack(args, 1, args.n))
+		if not ok then warn("[RyzenHub] callback error: " .. tostring(err)) end
+	end)
+end
+
 local function grad(parent, c1, c2, rot)
 	return new("UIGradient", {Color = ColorSequence.new(c1, c2), Rotation = rot or 0, Parent = parent})
 end
--- vệt sáng trắng chạy quanh viền
+
+-- vệt sáng trắng chạy quanh viền (1 vòng Heartbeat chung)
+local Spin = setmetatable({}, {__mode = "k"})
 local function shine(strokeObj, speed, base)
-	base = base or 0.82
+	base = base or 0.85
 	local g = new("UIGradient", {
 		Transparency = NumberSequence.new({
 			NumberSequenceKeypoint.new(0, base), NumberSequenceKeypoint.new(0.35, base),
@@ -113,107 +137,19 @@ local function shine(strokeObj, speed, base)
 	return g
 end
 
---------------------------------------------------------------------- ICON DỰ PHÒNG (tự vẽ, chỉ dùng khi Lucide chưa tải được)
-local Draw = {
-	check   = function(S) S(.22,.52,.42,.72,.13); S(.42,.72,.78,.30,.13) end,
-	cross   = function(S) S(.26,.26,.74,.74,.13); S(.74,.26,.26,.74,.13) end,
-	minus   = function(S) S(.18,.5,.82,.5,.09) end,
-	square  = function(S, D, R, Q) Q(.5,.5,.62,1.2) end,
-	restore = function(S, D, R, Q) Q(.43,.57,.5,1.2); Q(.57,.43,.5,1.2) end,
-	chevron = function(S) S(.24,.38,.5,.64,.13); S(.5,.64,.76,.38,.13) end,
-	home    = function(S)
-		S(.14,.5,.5,.18,.11); S(.5,.18,.86,.5,.11)
-		S(.27,.45,.27,.82,.11); S(.73,.45,.73,.82,.11); S(.27,.82,.73,.82,.11)
-	end,
-	gear    = function(S, D, R)
-		R(.5,.5,.5,2)
-		for i = 0, 7 do
-			local a = math.rad(i * 45)
-			S(.5 + math.cos(a) * .27, .5 + math.sin(a) * .27, .5 + math.cos(a) * .4, .5 + math.sin(a) * .4, .13)
-		end
-		R(.5,.5,.18,1.5)
-	end,
-	sword   = function(S, D)
-		S(.24,.76,.78,.22,.13); S(.27,.5,.5,.73,.11); D(.2,.8,.15)
-	end,
-	target  = function(S, D, R) R(.5,.5,.8,2); R(.5,.5,.42,2); D(.5,.5,.14) end,
-	layers  = function(S)
-		S(.5,.18,.86,.38,.1); S(.86,.38,.5,.58,.1); S(.5,.58,.14,.38,.1); S(.14,.38,.5,.18,.1)
-		S(.14,.6,.5,.8,.1); S(.5,.8,.86,.6,.1)
-	end,
-	flag    = function(S)
-		S(.26,.16,.26,.86,.11); S(.26,.2,.78,.2,.1); S(.78,.2,.78,.52,.1); S(.26,.52,.78,.52,.1)
-	end,
-	info    = function(S, D, R) R(.5,.5,.84,2); D(.5,.31,.12); S(.5,.46,.5,.72,.12) end,
-	bolt    = function(S) S(.62,.1,.32,.54,.13); S(.32,.54,.66,.46,.13); S(.66,.46,.38,.9,.13) end,
-	grip    = function(S, D) D(.82,.82,.16); D(.82,.52,.16); D(.52,.82,.16) end,
-}
-
-local function DrawIcon(name, parent, size, col)
-	col = col or C.Text
-	local root = new("Frame", {Name = "Icon_" .. name, Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, Parent = parent})
-	local parts = {}
-	local function S(x1, y1, x2, y2, t) -- đoạn thẳng bo tròn 2 đầu
-		local dx, dy = x2 - x1, y2 - y1
-		local f = new("Frame", {
-			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale((x1 + x2) / 2, (y1 + y2) / 2),
-			Size = UDim2.fromScale(math.sqrt(dx * dx + dy * dy) + t, t), Rotation = math.deg(math.atan2(dy, dx)),
-			BackgroundColor3 = col, BorderSizePixel = 0, Parent = root,
-		}, {pill()})
-		parts[#parts + 1] = {f, "f"}
-	end
-	local function D(cx, cy, d) -- chấm tròn đặc
-		local f = new("Frame", {
-			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(cx, cy), Size = UDim2.fromScale(d, d),
-			BackgroundColor3 = col, BorderSizePixel = 0, Parent = root,
-		}, {pill()})
-		parts[#parts + 1] = {f, "f"}
-	end
-	local function R(cx, cy, d, th) -- vòng tròn rỗng
-		local f = new("Frame", {
-			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(cx, cy), Size = UDim2.fromScale(d, d),
-			BackgroundTransparency = 1, BorderSizePixel = 0, Parent = root,
-		}, {pill()})
-		local s = new("UIStroke", {Color = col, Thickness = th, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = f})
-		parts[#parts + 1] = {s, "s"}
-	end
-	local function Q(cx, cy, w, th) -- hình vuông rỗng
-		local f = new("Frame", {
-			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(cx, cy), Size = UDim2.fromScale(w, w),
-			BackgroundTransparency = 1, BorderSizePixel = 0, Parent = root,
-		}, {corner(2)})
-		local s = new("UIStroke", {Color = col, Thickness = th, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = f})
-		parts[#parts + 1] = {s, "s"}
-	end
-
-	local fn = Draw[name]
-	if fn then fn(S, D, R, Q) end
-
-	local api = {Root = root}
-	function api.SetColor(c)
-		for _, p in ipairs(parts) do
-			if p[2] == "f" then tw(p[1], {BackgroundColor3 = c}, .18) else tw(p[1], {Color = c}, .18) end
-		end
-	end
-	return api
-end
-
 --------------------------------------------------------------------- ICON LUCIDE (https://lucide.dev)
--- Dùng: Icon("house"), AddTab("Home", "house"), "lucide:swords" ... (tên đúng như trên lucide.dev)
--- Tên cũ vẫn chạy nhờ bảng đổi tên bên dưới (home -> house, gear -> settings ...)
--- Tự tải thư viện icon Lucide lúc chạy (cần HttpGet). Muốn dùng module riêng: getgenv().LucideIcons = <module có .Icon(name)>
-local LUCIDE_ALIAS = {
-	home = "house", gear = "settings", sword = "swords", bolt = "zap", cross = "x", chevron = "chevron-down",
-	target = "crosshair", restore = "copy", minus = "minus", square = "square", check = "check", info = "info",
-	layers = "layers", flag = "flag",
-}
-local DRAW_FALLBACK = { -- tên Lucide -> icon dự phòng
-	zap = "bolt", x = "cross", ["chevron-down"] = "chevron", copy = "restore", house = "home",
-	settings = "gear", swords = "sword", crosshair = "target", ["move-diagonal-2"] = "grip",
-}
+-- Tên icon đúng như trên lucide.dev: "house", "settings", "swords", "crosshair", "chevron-down"...
+-- Cũng nhận "lucide:tên", asset id (123456 / "rbxassetid://...") hoặc URL ảnh.
+-- Muốn dùng module riêng: getgenv().LucideIcons = <module có .Icon(name, "lucide")>
 local LUCIDE_SOURCES = {
 	"https://raw.githubusercontent.com/Footagesus/Icons/main/Main.lua",
 }
+-- Chỉ dùng khi KHÔNG tải được Lucide (mất mạng / executor chặn HttpGet): ký tự đơn giản cho các nút của UI
+local GLYPH = {
+	check = "✓", x = "✕", minus = "–", square = "□", copy = "❐", info = "i",
+	["chevron-down"] = "▾", ["chevron-right"] = "›", ["move-diagonal-2"] = "◢",
+}
+
 local LucideLib, LucideState, LucideWait, LucideCache = nil, "idle", {}, {}
 
 local function lucideInit()
@@ -231,7 +167,7 @@ local function lucideInit()
 		if lib and lib.SetIconsType then pcall(lib.SetIconsType, "lucide") end
 		LucideLib = lib
 		LucideState = lib and "ready" or "failed"
-		if not lib then warn("[RyzenHub] cannot load Lucide icons, using fallback icons") end
+		if not lib then warn("[RyzenHub] cannot load Lucide icons, using plain glyph fallback") end
 		for _, cb in ipairs(LucideWait) do task.defer(cb) end
 		LucideWait = {}
 	end)
@@ -246,7 +182,6 @@ end
 local function lucideLookup(name)
 	if LucideState ~= "ready" then return nil end
 	name = tostring(name):gsub("^lucide:", "")
-	name = LUCIDE_ALIAS[name] or name
 	local c = LucideCache[name]
 	if c ~= nil then return c or nil end
 	local ok, a, b = pcall(function() return LucideLib.Icon(name, "lucide") end)
@@ -262,43 +197,43 @@ local function lucideLookup(name)
 		data = {Image = a, Pos = b.ImageRectPosition or b.ImageRectOffset, Size = b.ImageRectSize}
 	end
 	LucideCache[name] = data or false
-	if not data then warn("[RyzenHub] Lucide icon not found:", name) end
+	if not data then warn("[RyzenHub] Lucide icon not found: " .. name) end
 	return data
 end
 
 local function Icon(name, parent, size, col)
 	col = col or C.Text
-	local root = new("Frame", {Name = "Icon_" .. name, Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, Parent = parent})
+	name = tostring(name):gsub("^lucide:", "")
 	local img = new("ImageLabel", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ImageColor3 = col,
-		ScaleType = Enum.ScaleType.Fit, Visible = false, Parent = root,
+		Name = "Icon_" .. name, Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1,
+		ImageColor3 = col, ScaleType = Enum.ScaleType.Fit, Parent = parent,
 	})
-	local fb, cur = nil, col
+	local glyph, cur = nil, col
 	lucideWhenReady(function()
-		if not root.Parent then return end
+		if not img.Parent then return end
 		local d = lucideLookup(name)
 		if d then
 			img.Image = d.Image
 			if d.Pos then img.ImageRectOffset = d.Pos end
 			if d.Size then img.ImageRectSize = d.Size end
-			img.Visible = true
-		else
-			local key = DRAW_FALLBACK[name] or name
-			if Draw[key] then fb = DrawIcon(key, root, size, cur) end
+		elseif GLYPH[name] then
+			glyph = new("TextLabel", {
+				Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = GLYPH[name], TextColor3 = cur,
+				TextSize = math.max(8, size - 2), Font = Enum.Font.GothamBold, Parent = img,
+			})
 		end
 	end)
-	local api = {Root = root}
+	local api = {Root = img}
 	function api.SetColor(c)
 		cur = c
 		tw(img, {ImageColor3 = c}, .18)
-		if fb then fb.SetColor(c) end
+		if glyph then tw(glyph, {TextColor3 = c}, .18) end
 	end
 	return api
 end
 lucideInit()
 
 --------------------------------------------------------------------- ẢNH: asset id / rbxassetid / URL
--- Nhận: 123456 | "123456" | "rbxassetid://123456" | "https://.../logo.png" (URL cần executor có writefile + getcustomasset)
 local ImgCache = {}
 local function resolveAsset(src, cb)
 	if type(src) == "number" then return cb("rbxassetid://" .. src) end
@@ -326,11 +261,11 @@ local function resolveAsset(src, cb)
 			writefile(file, data)
 			return getAsset(file)
 		end)
-		if ok and res then ImgCache[src] = res; cb(res) else warn("[RyzenHub] cannot load image:", src, res); cb(nil) end
+		if ok and res then ImgCache[src] = res; cb(res) else warn("[RyzenHub] cannot load image: " .. tostring(src)); cb(nil) end
 	end)
 end
 
--- icon: tên Lucide (house, settings, swords... xem lucide.dev) hoặc ảnh (id / URL)
+-- spec: tên Lucide hoặc ảnh (id / URL)
 local function AnyIcon(spec, parent, size, col)
 	if type(spec) == "string" and spec ~= "" and not spec:match("^%d+$") and not spec:match("^rbxasset") and not spec:match("^https?://") then
 		return Icon(spec, parent, size, col)
@@ -351,166 +286,676 @@ local function keyOf(k)
 		local ok, v = pcall(function() return Enum.KeyCode[k] end)
 		if ok and v then return v end
 	end
-	return Enum.KeyCode.RightControl
+	return nil
 end
 local function keyName(k) return (k.Name:gsub("(%l)(%u)", "%1 %2"):gsub("Control", "Ctrl")) end
-
---------------------------------------------------------------------- CHECKBOX
--- Ô vuông bo nhẹ. Tắt: nền tối + viền. Bật: nền trắng + dấu ✓ (chữ, không vẽ)
-local function CreateSwitch(parent, default, S)
-	S = S or 20
-	local enabled = default and true or false
-
-	local track = new("Frame", {
-		Name = "Track", Size = UDim2.fromOffset(S, S), BackgroundColor3 = C.Off, BorderSizePixel = 0, Parent = parent,
-	}, {corner(5)})
-	local st = stroke(C.Stroke, 1); st.Parent = track
-	local mark = new("TextLabel", {
-		BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "✓", TextColor3 = C.White,
-		Font = Enum.Font.SourceSansBold, TextSize = S - 3, TextTransparency = 1, ZIndex = 2, Parent = track,
-	})
-	local sc = new("UIScale", {Scale = 0.3, Parent = mark})
-
-	local function apply(anim)
-		local on = enabled
-		if not anim then
-			st.Color = on and C.White or C.Stroke
-			mark.TextTransparency = on and 0 or 1
-			sc.Scale = on and 1 or 0.3
-			return
-		end
-		tw(st, {Color = on and C.White or C.Stroke}, .2, Enum.EasingStyle.Sine)
-		tw(mark, {TextTransparency = on and 0 or 1}, .2, Enum.EasingStyle.Sine)
-		tw(sc, {Scale = on and 1 or 0.3}, .3, on and Enum.EasingStyle.Back or Enum.EasingStyle.Quint)
-	end
-	apply(false)
-
-	local api = {Track = track}
-	function api.Set(v) enabled = v and true or false; apply(true) end
-	function api.Get() return enabled end
-	return api
-end
-
---------------------------------------------------------------------- LIB
-local UI = {}
-UI.__index = UI
-
-local KIND_ICON = {success = "check", error = "x", info = "info"}
 
 local function viewport()
 	local cam = workspace.CurrentCamera
 	return cam and cam.ViewportSize or Vector2.new(1280, 720)
 end
--- Scale theo CHIỀU CAO màn hình, phần chiều ngang dư thì nới rộng cửa sổ (không để thừa khoảng trống / không cắt tab)
-local function layout()
+
+-- scale theo màn hình (không bao giờ > 1) rồi nhân với Scale người dùng
+local function fitScale(size, userScale)
 	local vp = viewport()
-	local availH = vp.Y - TOP - 8
-	local s = math.clamp(math.min(availH / NORMAL.Y, (vp.X - 16) / NORMAL.X, 1), .5, 1)
-	local w = math.clamp((vp.X - 16) / s, NORMAL.X, MAXW)
-	local h = math.clamp(availH / s, NORMAL.Y, MAXH)
-	return s, Vector2.new(w, h)
+	local s = math.min((vp.Y - TOP - 8) / size.Y, (vp.X - 16) / size.X, 1)
+	return math.clamp(s, .45, 1) * (userScale or 1)
 end
 
-function UI.new(cfg)
+--------------------------------------------------------------------- MODULE
+local UI = {}
+local Window = {}
+Window.__index = Window
+local Elements = {}      -- Toggle, Button, Slider, ... (dùng chung cho Tab và Section)
+local TabC = {}
+TabC.__index = TabC
+local SectionC = {}
+SectionC.__index = SectionC
+
+local KIND_ICON = {success = "check", error = "x", info = "info"}
+
+--------------------------------------------------------------------- DÒNG (row) DÙNG CHUNG CHO MỌI ELEMENT
+local function T(o) return tostring(o.Title or o.Name or "") end
+local function D(o) return o.Desc or o.Description end
+
+-- clickable: row là TextButton; stacked: có thêm hàng điều khiển bên dưới (dropdown/input/slider)
+local function makeRow(self, o, rightW, stacked, clickable)
+	self._order = self._order + 1
+	local row = new(clickable and "TextButton" or "Frame", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.Item,
+		BorderSizePixel = 0, LayoutOrder = self._order, Parent = self._holder,
+	}, {corner(6), padding(8, 10)})
+	if clickable then row.AutoButtonColor = false; row.Text = "" end
+	local rs = stroke(C.Stroke, 1); rs.Parent = row
+	if stacked then
+		new("UIListLayout", {Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder, Parent = row})
+	end
+	local head = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+		LayoutOrder = 1, Parent = row,
+	})
+	local tb = new("Frame", {
+		Size = UDim2.new(1, rightW and -(rightW + 8) or 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1, Parent = head,
+	}, {list(1)})
+	local title = wrapLabel(T(o), 11, C.Text, F.Semi); title.LayoutOrder = 1; title.Parent = tb
+	local desc = wrapLabel(D(o) or "", 10, C.Sub, F.Reg); desc.LayoutOrder = 2; desc.Parent = tb
+	desc.Visible = D(o) ~= nil and D(o) ~= ""
+	title.Visible = T(o) ~= ""
+	head.Visible = title.Visible or desc.Visible
+	return {Row = row, Head = head, Title = title, Desc = desc, Stroke = rs}
+end
+
+-- API chung: SetTitle / SetDesc / Lock / Unlock / SetVisible / Destroy + đăng ký Flag
+local function finish(self, o, r, api, onDestroy)
+	api.Locked = false
+	function api:SetTitle(t) r.Title.Text = tostring(t); r.Title.Visible = tostring(t) ~= ""; r.Head.Visible = r.Title.Visible or r.Desc.Visible end
+	function api:SetDesc(t) t = tostring(t or ""); r.Desc.Text = t; r.Desc.Visible = t ~= ""; r.Head.Visible = r.Title.Visible or r.Desc.Visible end
+	function api:SetVisible(v) r.Row.Visible = v and true or false end
+	function api:Lock() self.Locked = true; tw(r.Row, {BackgroundTransparency = .5}, .15); tw(r.Title, {TextTransparency = .5}, .15) end
+	function api:Unlock() self.Locked = false; tw(r.Row, {BackgroundTransparency = 0}, .15); tw(r.Title, {TextTransparency = 0}, .15) end
+	function api:Destroy()
+		if onDestroy then onDestroy() end
+		if o.Flag and self._flagOwner and self._flagOwner.Flags[o.Flag] == self then self._flagOwner.Flags[o.Flag] = nil end
+		r.Row:Destroy()
+	end
+	api.Row = r.Row
+	if o.Flag then
+		self._win.Flags[o.Flag] = api
+		api._flagOwner = self._win
+	end
+	if o.Locked then api:Lock() end
+	return api
+end
+
+local function hoverRow(r, extra)
+	local row = r.Row
+	row.MouseEnter:Connect(function() tw(row, {BackgroundColor3 = C.ItemHov}, .15) end)
+	row.MouseLeave:Connect(function() tw(row, {BackgroundColor3 = C.Item}, .15); if extra then extra() end end)
+end
+
+--------------------------------------------------------------------- TOGGLE
+-- Tab:Toggle({Title = "Auto Farm", Desc = "...", Value = false, Type = "Switch"|"Checkbox", Flag = "AutoFarm", Callback = function(v) end})
+function Elements:Toggle(o)
+	o = o or {}
+	local v = o.Value
+	if v == nil then v = o.Default end
+	local state = v and true or false
+	local checkbox = tostring(o.Type or ""):lower() == "checkbox"
+	local r = makeRow(self, o, checkbox and 20 or 34, false, true)
+	local row = r.Row
+
+	local track, knob, mark
+	if checkbox then
+		track = new("Frame", {
+			AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, 0, .5, 0), Size = UDim2.fromOffset(18, 18),
+			BackgroundColor3 = C.Off, BorderSizePixel = 0, Parent = row,
+		}, {corner(5)})
+		mark = Icon("check", track, 12, state and C.Black or C.Off)
+		mark.Root.AnchorPoint = Vector2.new(.5, .5); mark.Root.Position = UDim2.fromScale(.5, .5)
+	else
+		track = new("Frame", {
+			AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, 0, .5, 0), Size = UDim2.fromOffset(32, 18),
+			BackgroundColor3 = C.Off, BorderSizePixel = 0, Parent = row,
+		}, {pill()})
+		knob = new("Frame", {
+			AnchorPoint = Vector2.new(0, .5), Position = UDim2.new(0, 3, .5, 0), Size = UDim2.fromOffset(12, 12),
+			BackgroundColor3 = C.Knob, BorderSizePixel = 0, Parent = track,
+		}, {pill()})
+	end
+	local ts = stroke(C.Stroke, 1); ts.Parent = track
+
+	local function apply(anim)
+		local t = anim and .22 or 0
+		local function set(o2, p) if anim then tw(o2, p, t) else for k, val in pairs(p) do o2[k] = val end end end
+		set(track, {BackgroundColor3 = state and C.White or C.Off})
+		set(ts, {Color = state and C.White or C.Stroke})
+		set(r.Stroke, {Color = state and RGB(120, 120, 120) or C.Stroke})
+		if knob then
+			set(knob, {BackgroundColor3 = state and C.Black or C.Knob})
+			if anim then tw(knob, {Position = UDim2.new(0, state and 17 or 3, .5, 0)}, .25, Enum.EasingStyle.Back)
+			else knob.Position = UDim2.new(0, state and 17 or 3, .5, 0) end
+		end
+		if mark then mark.SetColor(state and C.Black or C.Off) end
+	end
+	apply(false)
+
+	local api = {}
+	function api:Set(val, silent)
+		state = val and true or false
+		apply(true)
+		if not silent then fire(o.Callback, state) end
+	end
+	function api:Get() return state end
+	row.MouseButton1Click:Connect(function() if not api.Locked then api:Set(not state) end end)
+	hoverRow(r)
+	return finish(self, o, r, api)
+end
+
+--------------------------------------------------------------------- BUTTON
+-- Tab:Button({Title = "Teleport", Desc = "...", Icon = "mouse-pointer-click", Callback = function() end})
+function Elements:Button(o)
+	o = o or {}
+	local r = makeRow(self, o, 18, false, true)
+	local row = r.Row
+	local sc = new("UIScale", {Parent = row})
+	local ic = Icon(o.Icon or "chevron-right", row, 14, C.Sub)
+	ic.Root.AnchorPoint = Vector2.new(1, .5); ic.Root.Position = UDim2.new(1, 0, .5, 0)
+	local api = {}
+	function api:Click() fire(o.Callback) end
+	row.MouseButton1Click:Connect(function() if not api.Locked then fire(o.Callback) end end)
+	row.MouseEnter:Connect(function() ic.SetColor(C.White) end)
+	row.MouseLeave:Connect(function() ic.SetColor(C.Sub); tw(sc, {Scale = 1}, .2) end)
+	row.MouseButton1Down:Connect(function() tw(sc, {Scale = .98}, .08) end)
+	row.MouseButton1Up:Connect(function() tw(sc, {Scale = 1}, .25, Enum.EasingStyle.Back) end)
+	hoverRow(r)
+	return finish(self, o, r, api)
+end
+
+--------------------------------------------------------------------- SLIDER
+-- Tab:Slider({Title = "Speed", Step = 1, Value = {Min = 0, Max = 100, Default = 50}, Callback = function(v) end})
+function Elements:Slider(o)
+	o = o or {}
+	local vc = type(o.Value) == "table" and o.Value or {}
+	local min = vc.Min or o.Min or 0
+	local max = vc.Max or o.Max or 100
+	local step = o.Step or vc.Step or 1
+	local val = math.clamp(vc.Default or o.Default or (type(o.Value) == "number" and o.Value) or min, min, max)
+	local dec = tostring(step):match("%.(%d+)")
+	dec = dec and #dec or 0
+	local function fmt(x) return string.format("%." .. dec .. "f", x) end
+
+	local r = makeRow(self, o, 46, true, false)
+	local row = r.Row
+	local valLbl = label(fmt(val), 10, C.Sub, F.Semi)
+	valLbl.AnchorPoint = Vector2.new(1, 0); valLbl.Position = UDim2.new(1, 0, 0, 0)
+	valLbl.Size = UDim2.fromOffset(44, 14); valLbl.TextXAlignment = Enum.TextXAlignment.Right; valLbl.Parent = r.Head
+	r.Head.Visible = true
+	-- nếu không có tiêu đề/mô tả vẫn hiện giá trị
+
+	local hold = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 14), BackgroundTransparency = 1, Text = "", AutoButtonColor = false,
+		LayoutOrder = 2, Parent = row,
+	})
+	local track = new("Frame", {
+		AnchorPoint = Vector2.new(0, .5), Position = UDim2.new(0, 0, .5, 0), Size = UDim2.new(1, 0, 0, 4),
+		BackgroundColor3 = C.Off, BorderSizePixel = 0, Parent = hold,
+	}, {pill()})
+	local fill = new("Frame", {Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = track}, {pill()})
+	local knob = new("Frame", {
+		AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(0, .5), Size = UDim2.fromOffset(12, 12),
+		BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = track,
+	}, {pill()})
+	local ks = stroke(C.Black, 2); ks.Parent = knob
+
+	local function frac() return max > min and (val - min) / (max - min) or 0 end
+	local function render(anim)
+		local f = frac()
+		valLbl.Text = fmt(val)
+		if anim then
+			tw(fill, {Size = UDim2.fromScale(f, 1)}, .1)
+			tw(knob, {Position = UDim2.fromScale(f, .5)}, .1)
+		else
+			fill.Size = UDim2.fromScale(f, 1); knob.Position = UDim2.fromScale(f, .5)
+		end
+	end
+	render(false)
+
+	local api = {}
+	function api:Set(v, silent)
+		v = tonumber(v) or min
+		v = min + math.floor((v - min) / step + .5) * step
+		v = math.clamp(tonumber(fmt(v)) or v, min, max)
+		if v == val then return end
+		val = v
+		render(true)
+		if not silent then fire(o.Callback, val) end
+	end
+	function api:Get() return val end
+
+	local dragging = false
+	local function fromX(x)
+		local w = track.AbsoluteSize.X
+		if w <= 0 then return end
+		local f = math.clamp((x - track.AbsolutePosition.X) / w, 0, 1)
+		api:Set(min + f * (max - min))
+	end
+	local page = self._page
+	local function stop()
+		dragging = false
+		tw(knob, {Size = UDim2.fromOffset(12, 12)}, .15)
+		if page then page.ScrollingEnabled = true end
+	end
+	hold.InputBegan:Connect(function(i)
+		if api.Locked then return end
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			if page then page.ScrollingEnabled = false end
+			tw(knob, {Size = UDim2.fromOffset(15, 15)}, .15)
+			fromX(i.Position.X)
+			i.Changed:Connect(function() if i.UserInputState == Enum.UserInputState.End and dragging then stop() end end)
+		end
+	end)
+	local c1 = UIS.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			fromX(i.Position.X)
+		end
+	end)
+	local c2 = UIS.InputEnded:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then stop() end
+	end)
+	self._win:_track(c1); self._win:_track(c2)
+	return finish(self, o, r, api, function() c1:Disconnect(); c2:Disconnect() end)
+end
+
+--------------------------------------------------------------------- DROPDOWN
+-- Tab:Dropdown({Title = "Mode", Values = {"A","B"}, Value = "A", Multi = false, Callback = function(v) end})
+function Elements:Dropdown(o)
+	o = o or {}
+	local values = o.Values or o.Options or {}
+	local multi = o.Multi and true or false
+	local sel = {}               -- tập đã chọn: sel[name] = true
+	local function setInitial(v)
+		sel = {}
+		if type(v) == "table" then
+			for _, n in ipairs(v) do sel[tostring(n)] = true end
+		elseif v ~= nil then
+			sel[tostring(v)] = true
+		end
+	end
+	setInitial(o.Value ~= nil and o.Value or o.Default)
+
+	local r = makeRow(self, o, nil, true, false)
+	local row = r.Row
+	local hd = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = C.Field, BorderSizePixel = 0, AutoButtonColor = false, Text = "",
+		LayoutOrder = 2, Parent = row,
+	}, {corner(5)})
+	local hs = stroke(C.Stroke, 1); hs.Parent = hd
+	local val = label("", 11, C.Text)
+	val.Position = UDim2.fromOffset(9, 0); val.Size = UDim2.new(1, -30, 1, 0); val.Parent = hd
+	local arrow = Icon("chevron-down", hd, 12, C.Sub)
+	arrow.Root.AnchorPoint = Vector2.new(.5, .5); arrow.Root.Position = UDim2.new(1, -13, .5, 0)
+
+	local opts = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.Field, BorderSizePixel = 0, ClipsDescendants = true, Visible = false,
+		LayoutOrder = 3, Parent = row,
+	}, {corner(5)})
+	local os_ = stroke(C.Stroke, 1); os_.Parent = opts
+	local scroll = new("ScrollingFrame", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2,
+		ScrollBarImageColor3 = C.Sub, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = opts,
+	}, {list(2), padding(3)})
+
+	local isOpen, buttons = false, {}
+	local function count() local n = 0; for _ in pairs(sel) do n = n + 1 end; return n end
+	local function summary()
+		local out = {}
+		for _, n in ipairs(values) do if sel[tostring(n)] then out[#out + 1] = tostring(n) end end
+		if #out == 0 then return o.Placeholder or "Select...", false end
+		return table.concat(out, ", "), true
+	end
+	local function refreshVisual(anim)
+		local text, has = summary()
+		val.Text = text
+		tw(val, {TextColor3 = has and C.Text or C.Sub}, anim and .15 or 0)
+		for name, b in pairs(buttons) do
+			local on = sel[name] == true
+			tw(b.btn, {TextColor3 = on and C.White or C.Sub, BackgroundTransparency = on and .9 or 1}, anim and .15 or 0)
+			b.check.Root.Visible = on
+		end
+	end
+	local function fullH()
+		local n = #values
+		return math.min(n * 24 + math.max(n - 1, 0) * 2 + 6, 120)
+	end
+	local function setOpen(v)
+		isOpen = v
+		tw(arrow.Root, {Rotation = v and 180 or 0}, .25, Enum.EasingStyle.Back)
+		tw(hs, {Color = v and C.White or C.Stroke}, .2)
+		if v then
+			opts.Visible = true
+			tw(opts, {Size = UDim2.new(1, 0, 0, fullH())}, .25)
+		else
+			local t = tw(opts, {Size = UDim2.new(1, 0, 0, 0)}, .2)
+			t.Completed:Connect(function() if not isOpen then opts.Visible = false end end)
+		end
+	end
+
+	local api = {}
+	local function emit()
+		if multi then
+			local out = {}
+			for _, n in ipairs(values) do if sel[tostring(n)] then out[#out + 1] = tostring(n) end end
+			fire(o.Callback, out)
+		else
+			local cur
+			for _, n in ipairs(values) do if sel[tostring(n)] then cur = tostring(n) end end
+			fire(o.Callback, cur)
+		end
+	end
+	local function build()
+		for _, b in pairs(buttons) do b.btn:Destroy() end
+		buttons = {}
+		for i, nm in ipairs(values) do
+			local name = tostring(nm)
+			local b = new("TextButton", {
+				Size = UDim2.new(1, 0, 0, 24), BackgroundColor3 = C.White, BackgroundTransparency = 1, BorderSizePixel = 0,
+				Text = name, TextColor3 = C.Sub, TextSize = 11, FontFace = F.Reg, TextXAlignment = Enum.TextXAlignment.Left,
+				AutoButtonColor = false, LayoutOrder = i, Parent = scroll,
+			}, {corner(4), padding(0, 24, 0, 8)})
+			local ck = Icon("check", b, 12, C.White)
+			ck.Root.AnchorPoint = Vector2.new(1, .5); ck.Root.Position = UDim2.new(1, 16, .5, 0); ck.Root.Visible = false
+			buttons[name] = {btn = b, check = ck}
+			b.MouseEnter:Connect(function() if not sel[name] then tw(b, {BackgroundTransparency = .94}, .1) end end)
+			b.MouseLeave:Connect(function() if not sel[name] then tw(b, {BackgroundTransparency = 1}, .1) end end)
+			b.MouseButton1Click:Connect(function()
+				if api.Locked then return end
+				if multi then
+					sel[name] = (not sel[name]) or nil
+				else
+					sel = {[name] = true}
+					setOpen(false)
+				end
+				refreshVisual(true)
+				emit()
+			end)
+		end
+		refreshVisual(false)
+	end
+	build()
+
+	function api:Set(v, silent)
+		setInitial(v)
+		refreshVisual(true)
+		if not silent then emit() end
+	end
+	function api:Get()
+		if multi then
+			local out = {}
+			for _, n in ipairs(values) do if sel[tostring(n)] then out[#out + 1] = tostring(n) end end
+			return out
+		end
+		for _, n in ipairs(values) do if sel[tostring(n)] then return tostring(n) end end
+		return nil
+	end
+	function api:Refresh(newValues)
+		values = newValues or {}
+		local keep = {}
+		for _, n in ipairs(values) do if sel[tostring(n)] then keep[tostring(n)] = true end end
+		sel = keep
+		build()
+		if isOpen then tw(opts, {Size = UDim2.new(1, 0, 0, fullH())}, .2) end
+	end
+	function api:Open() setOpen(true) end
+	function api:Close() setOpen(false) end
+	hd.MouseButton1Click:Connect(function() if not api.Locked then setOpen(not isOpen) end end)
+	hd.MouseEnter:Connect(function() tw(hd, {BackgroundColor3 = C.ItemHov}, .15) end)
+	hd.MouseLeave:Connect(function() tw(hd, {BackgroundColor3 = C.Field}, .15) end)
+	return finish(self, o, r, api)
+end
+
+--------------------------------------------------------------------- INPUT
+-- Tab:Input({Title = "Webhook", Placeholder = "...", Value = "", Numeric = false, Callback = function(text) end})
+function Elements:Input(o)
+	o = o or {}
+	local r = makeRow(self, o, nil, true, false)
+	local box = new("TextBox", {
+		Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = C.Field, BorderSizePixel = 0, LayoutOrder = 2,
+		Text = tostring(o.Value or o.Default or ""), PlaceholderText = o.Placeholder or "Type here...",
+		PlaceholderColor3 = C.Sub, TextColor3 = C.Text, TextSize = 11, FontFace = F.Reg,
+		TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false, ClipsDescendants = true, Parent = r.Row,
+	}, {corner(5), padding(0, 9, 0, 9)})
+	local bs = stroke(C.Stroke, 1); bs.Parent = box
+	box.Focused:Connect(function() tw(bs, {Color = C.White}, .15) end)
+	local api = {}
+	local function clean(t)
+		if o.Numeric then t = t:gsub("[^%d%.%-]", "") end
+		return t
+	end
+	box.FocusLost:Connect(function()
+		tw(bs, {Color = C.Stroke}, .15)
+		local t = clean(box.Text)
+		box.Text = t
+		if not api.Locked then fire(o.Callback, t) end
+	end)
+	function api:Set(v, silent)
+		box.Text = clean(tostring(v or ""))
+		if not silent then fire(o.Callback, box.Text) end
+	end
+	function api:Get() return box.Text end
+	return finish(self, o, r, api)
+end
+
+--------------------------------------------------------------------- KEYBIND
+-- Tab:Keybind({Title = "Fly", Value = "F", Callback = function(key) end})  -- Callback chạy khi BẤM phím đó
+function Elements:Keybind(o)
+	o = o or {}
+	local key = keyOf(o.Value or o.Default)
+	local listening = false
+	local r = makeRow(self, o, 70, false, true)
+	local row = r.Row
+	local chip = new("TextLabel", {
+		AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, 0, .5, 0), Size = UDim2.fromOffset(0, 20),
+		AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = C.Field, BorderSizePixel = 0,
+		Text = key and keyName(key) or "None", TextColor3 = C.Sub, TextSize = 10, FontFace = F.Semi, Parent = row,
+	}, {corner(5), padding(0, 8, 0, 8)})
+	new("UISizeConstraint", {MinSize = Vector2.new(34, 20), Parent = chip})
+	local cs = stroke(C.Stroke, 1); cs.Parent = chip
+
+	local api = {}
+	local function show()
+		chip.Text = listening and "..." or (key and keyName(key) or "None")
+		tw(chip, {TextColor3 = listening and C.White or C.Sub}, .15)
+		tw(cs, {Color = listening and C.White or C.Stroke}, .15)
+	end
+	function api:Set(v, silent)
+		key = keyOf(v) or key
+		listening = false
+		show()
+		if not silent and o.OnChange then fire(o.OnChange, key and key.Name) end
+	end
+	function api:Get() return key and key.Name or nil end
+	row.MouseButton1Click:Connect(function()
+		if api.Locked then return end
+		listening = not listening
+		show()
+	end)
+	local conn = UIS.InputBegan:Connect(function(i, gp)
+		if listening then
+			if i.UserInputType == Enum.UserInputType.Keyboard then
+				if i.KeyCode ~= Enum.KeyCode.Escape then key = i.KeyCode
+				end
+				listening = false
+				show()
+				if o.OnChange and key then fire(o.OnChange, key.Name) end
+			end
+		elseif not gp and key and i.KeyCode == key and not api.Locked then
+			fire(o.Callback, key.Name)
+		end
+	end)
+	self._win:_track(conn)
+	hoverRow(r)
+	return finish(self, o, r, api, function() conn:Disconnect() end)
+end
+
+--------------------------------------------------------------------- PARAGRAPH / DIVIDER
+function Elements:Paragraph(o)
+	o = o or {}
+	local r = makeRow(self, o, nil, false, false)
+	local api = {}
+	return finish(self, o, r, api)
+end
+
+function Elements:Divider()
+	self._order = self._order + 1
+	local d = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = C.Stroke, BackgroundTransparency = .3, BorderSizePixel = 0,
+		LayoutOrder = self._order, Parent = self._holder,
+	})
+	return {Destroy = function() d:Destroy() end}
+end
+
+--------------------------------------------------------------------- SECTION (nhóm có thể thu gọn, chứa các element)
+-- local s = Tab:Section({Title = "Farm", Opened = true}); s:Toggle({...})
+function Elements:Section(o)
+	if type(o) == "string" then o = {Title = o} end
+	o = o or {}
+	self._order = self._order + 1
+	local box = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+		LayoutOrder = self._order, Parent = self._holder,
+	}, {list(6)})
+	local head = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = 1, Parent = box,
+	})
+	new("Frame", {
+		AnchorPoint = Vector2.new(0, .5), Position = UDim2.new(0, 2, .5, 0), Size = UDim2.fromOffset(4, 4),
+		BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = head,
+	}, {pill()})
+	local hl = label(string.upper(T(o)), 9.5, C.Text, F.Bold)
+	hl.Position = UDim2.fromOffset(14, 0); hl.Size = UDim2.new(1, -34, 1, 0); hl.Parent = head
+	local arrow = Icon("chevron-down", head, 12, C.Sub)
+	arrow.Root.AnchorPoint = Vector2.new(1, .5); arrow.Root.Position = UDim2.new(1, -2, .5, 0)
+
+	local content = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 2, Parent = box,
+	}, {list(6)})
+
+	local sec = setmetatable({_win = self._win, _page = self._page, _holder = content, _order = 0}, SectionC)
+	local opened = o.Opened ~= false
+	local function apply(anim)
+		content.Visible = opened
+		if anim then tw(arrow.Root, {Rotation = opened and 0 or -90}, .2)
+		else arrow.Root.Rotation = opened and 0 or -90 end
+	end
+	apply(false)
+	function sec:Open() opened = true; apply(true) end
+	function sec:Close() opened = false; apply(true) end
+	function sec:Collapse() opened = not opened; apply(true) end
+	function sec:SetTitle(t) hl.Text = string.upper(tostring(t)) end
+	function sec:Destroy() box:Destroy() end
+	head.MouseButton1Click:Connect(function() opened = not opened; apply(true) end)
+	return sec
+end
+-- gộp Elements vào Tab và Section
+for k, v in pairs(Elements) do
+	TabC[k] = v
+	SectionC[k] = v
+end
+
+--------------------------------------------------------------------- WINDOW
+function Window:_track(conn) table.insert(self._conns, conn); return conn end
+
+function UI:CreateWindow(cfg)
 	cfg = cfg or {}
+	-- chờ Lucide tải xong (tối đa 4s) để icon hiện ngay, không bị "nhảy"
+	local t0 = os.clock()
+	lucideInit()
+	while LucideState == "loading" and os.clock() - t0 < 4 do task.wait() end
+
 	local self = setmetatable({
-		Tabs = {}, Current = nil, Open = false, Maximized = false,
+		Tabs = {}, Flags = {}, Current = nil, Open = false, Maximized = false,
+		Folder = tostring(cfg.Folder or "RyzenHub"), _conns = {},
 		_token = 0, _vis = 0, _pending = {}, _holding = false, _wasMin = false,
-		_imode = "idle", _dotTok = 0, _amp = 0.6, _waves = {},
-	}, UI)
+		_imode = "idle", _dotTok = 0, _amp = 0.6, _waves = {}, _userScale = cfg.Scale or 1,
+		_notifyState = cfg.StateNotify ~= false, _mini = false,
+	}, Window)
 
-	self._fit, self._size = layout()
-	local brand = string.upper(cfg.Title or "Hub")
-	self._key = keyOf(cfg.Key)
+	local sz = cfg.Size
+	if typeof(sz) == "UDim2" then sz = Vector2.new(sz.X.Offset, sz.Y.Offset) end
+	if typeof(sz) ~= "Vector2" then sz = DEF_SIZE end
+	self._size = Vector2.new(math.max(sz.X, MIN_SIZE.X), math.max(sz.Y, MIN_SIZE.Y))
+	self._fit = fitScale(self._size, self._userScale)
+	self._key = keyOf(cfg.ToggleKey or cfg.Key) or Enum.KeyCode.RightControl
+	local brand = string.upper(tostring(cfg.Title or "Hub"))
 
+	local pg = lp:WaitForChild("PlayerGui")
+	local old = pg:FindFirstChild("HubUI")
+	if old then old:Destroy() end
 	local gui = new("ScreenGui", {
 		Name = "HubUI", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 999,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 	})
-	gui.Parent = lp:WaitForChild("PlayerGui")
+	gui.Parent = pg
 	self.Gui = gui
+	UI._active = self
 
 	-- vòng lặp chung: xoay gradient + sóng nhạc
 	local clock = 0
-	local hb = RunService.Heartbeat:Connect(function(dt)
-		clock += dt
+	self:_track(RunService.Heartbeat:Connect(function(dt)
+		clock = clock + dt
 		for g, speed in pairs(Spin) do
 			if g.Parent then g.Rotation = (g.Rotation + speed * dt) % 360 else Spin[g] = nil end
 		end
 		if self._imode == "idle" then
-			self._amp += ((self.Open and 1 or 0.6) - self._amp) * math.min(1, dt * 4)
+			self._amp = self._amp + ((self.Open and 1 or 0.6) - self._amp) * math.min(1, dt * 4)
 			for _, w in ipairs(self._waves) do
 				local v = (math.sin(clock * w.s + w.p) + math.sin(clock * w.s * 0.47 + w.p * 1.9)) * 0.25 + 0.5
 				w.f.Size = UDim2.fromOffset(3, w.min + (w.max - w.min) * v * self._amp)
 			end
 		end
+	end))
+	gui.Destroying:Connect(function()
+		for _, c in ipairs(self._conns) do pcall(function() c:Disconnect() end) end
+		if UI._active == self then UI._active = nil end
 	end)
-	gui.Destroying:Connect(function() hb:Disconnect() end)
 
-	---------------------------------------------------------------- MAIN WINDOW
+	---------------------------------------------------------------- CỬA SỔ CHÍNH
 	local main = new("Frame", {
 		Name = "Main", AnchorPoint = Vector2.new(.5, 0), Position = UDim2.new(.5, 0, 0, TOP),
 		Size = UDim2.fromOffset(self._size.X, self._size.Y), BackgroundTransparency = 1, Visible = false, Parent = gui,
 	})
 	local scale = new("UIScale", {Scale = self._fit, Parent = main})
 
-	-- CanvasGroup KHÔNG được gắn UIGradient (sẽ nhuộm đen cả các con) -> nền gradient nằm trong 1 Frame riêng
 	local body = new("CanvasGroup", {
 		Name = "Body", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, Parent = main,
-	}, {corner(5)})
+	}, {corner(8)})
 	local bg = new("Frame", {Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = body})
 	grad(bg, C.Bg1, C.Bg2, 90)
-	local sheen = new("Frame", {Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = body})
-	new("UIGradient", {
-		Rotation = 90,
-		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.94), NumberSequenceKeypoint.new(0.45, 1), NumberSequenceKeypoint.new(1, 1),
-		}), Parent = sheen,
-	})
 
-	-- viền: vệt sáng trắng chạy quanh
-	local rim = new("Frame", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 10, Parent = main}, {corner(5)})
+	local rim = new("Frame", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 10, Parent = main}, {corner(8)})
 	local rimStroke = new("UIStroke", {Thickness = 1.2, Color = C.White, Transparency = 0, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = rim})
-	shine(rimStroke, 50, 0.86)
+	shine(rimStroke, 50, 0.88)
 
 	self.Main, self._scale, self._body, self._rimStroke, self._pos = main, scale, body, rimStroke, main.Position
 
-	---------------------------------------------------------------- THANH TIÊU ĐỀ TRẮNG (kiểu Windows)
-	local bar = new("Frame", {Name = "TitleBar", Size = UDim2.new(1, 0, 0, 42), BackgroundColor3 = C.White, BorderSizePixel = 0, ZIndex = 2, Parent = body})
-	grad(bar, C.BarBg1, C.BarBg2, 90)
+	---------------------------------------------------------------- THANH TIÊU ĐỀ
+	local bar = new("Frame", {Name = "TitleBar", Size = UDim2.new(1, 0, 0, TITLE_H), BackgroundColor3 = C.Panel, BackgroundTransparency = .25, BorderSizePixel = 0, ZIndex = 3, Parent = body})
 	new("Frame", {
 		Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, -1), BackgroundColor3 = C.White,
-		BackgroundTransparency = .9, BorderSizePixel = 0, ZIndex = 3, Parent = bar,
+		BackgroundTransparency = .92, BorderSizePixel = 0, ZIndex = 4, Parent = bar,
 	})
-	local logo = new("Frame", {Size = UDim2.fromOffset(22, 22), Position = UDim2.fromOffset(11, 10), BackgroundColor3 = C.ItemHov, BorderSizePixel = 0, ZIndex = 3, Parent = bar}, {corner(5)})
-	local li = Icon("zap", logo, 12, C.White); li.Root.Position = UDim2.fromOffset(5, 5); li.Root.ZIndex = 4
-	local logoImg = new("ImageLabel", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit, ZIndex = 4, Visible = false, Parent = logo}, {corner(5)})
-	self._logo, self._logoImg, self._logoIcon = logo, logoImg, li
+	local logo = new("Frame", {
+		Size = UDim2.fromOffset(22, 22), Position = UDim2.fromOffset(9, 6), BackgroundColor3 = C.ItemHov,
+		BorderSizePixel = 0, ZIndex = 4, Parent = bar,
+	}, {corner(6)})
+	self._logo = logo
 
 	local tl = new("Frame", {
-		Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, Position = UDim2.fromOffset(42, 0),
-		BackgroundTransparency = 1, ZIndex = 3, Parent = bar,
-	}, {new("UIListLayout", {FillDirection = Enum.FillDirection.Vertical, Padding = UDim.new(0, 1), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder})})
-	local title = label(brand, 11, C.BarText, F.Brand)
-	title.AutomaticSize = Enum.AutomaticSize.X; title.Size = UDim2.new(0, 0, 0, 14); title.ZIndex = 3; title.LayoutOrder = 1; title.Parent = tl
-	local sub = label(cfg.Subtitle or "", 10, C.BarSub)
-	sub.AutomaticSize = Enum.AutomaticSize.X; sub.Size = UDim2.new(0, 0, 0, 12); sub.ZIndex = 3; sub.LayoutOrder = 2
-	sub.Visible = (cfg.Subtitle or "") ~= ""; sub.Parent = tl
+		Size = UDim2.new(1, -150, 1, 0), Position = UDim2.fromOffset(38, 0), BackgroundTransparency = 1, ZIndex = 4, Parent = bar,
+	}, {new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical, Padding = UDim.new(0, 1),
+		VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder,
+	})})
+	local title = label(brand, 10, C.Text, F.Brand)
+	title.Size = UDim2.new(1, 0, 0, 13); title.ZIndex = 4; title.LayoutOrder = 1; title.Parent = tl
+	local sub = label(tostring(cfg.Author or cfg.Subtitle or ""), 9, C.Sub)
+	sub.Size = UDim2.new(1, 0, 0, 11); sub.ZIndex = 4; sub.LayoutOrder = 2
+	sub.Visible = sub.Text ~= ""; sub.Parent = tl
 	self._title, self._sub = title, sub
 
-	-- 3 nút: thu nhỏ / phóng to / đóng
 	local function control(order, iconName, isClose, onClick)
 		local b = new("TextButton", {
-			Size = UDim2.fromOffset(40, 42), Position = UDim2.new(1, -40 * (4 - order), 0, 0),
-			BackgroundColor3 = C.White, BackgroundTransparency = 1,
-			AutoButtonColor = false, Text = "", ZIndex = 4, Parent = bar,
+			Size = UDim2.fromOffset(32, TITLE_H), Position = UDim2.new(1, -32 * (4 - order), 0, 0),
+			BackgroundColor3 = C.White, BackgroundTransparency = 1, AutoButtonColor = false, Text = "", ZIndex = 5, Parent = bar,
 		})
 		local ico
 		local ctl = {}
 		local function mk(n)
 			if ico then ico.Root:Destroy() end
-			ico = Icon(n, b, 12, C.BarText)
-			ico.Root.AnchorPoint = Vector2.new(.5, .5); ico.Root.Position = UDim2.fromScale(.5, .5); ico.Root.ZIndex = 5
+			ico = Icon(n, b, 12, C.Text)
+			ico.Root.AnchorPoint = Vector2.new(.5, .5); ico.Root.Position = UDim2.fromScale(.5, .5); ico.Root.ZIndex = 6
 		end
 		mk(iconName)
 		b.MouseEnter:Connect(function()
@@ -519,7 +964,7 @@ function UI.new(cfg)
 		end)
 		b.MouseLeave:Connect(function()
 			tw(b, {BackgroundTransparency = 1}, .15)
-			ico.SetColor(C.BarText)
+			ico.SetColor(C.Text)
 		end)
 		b.MouseButton1Click:Connect(onClick)
 		function ctl.SetIcon(n) mk(n) end
@@ -527,9 +972,9 @@ function UI.new(cfg)
 	end
 	control(1, "minus", false, function() self:SetVisible(false, "min") end)
 	self._maxCtl = control(2, "square", false, function() self:ToggleMax() end)
-	control(3, "x", true, function() self:SetVisible(false) end)
+	control(3, "x", true, function() self:SetVisible(false); if self._onClose then fire(self._onClose) end end)
 
-	-- kéo cửa sổ (chuột + cảm ứng)
+	-- kéo cửa sổ
 	local dragging, dragStart, startPos
 	bar.InputBegan:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
@@ -537,25 +982,65 @@ function UI.new(cfg)
 			i.Changed:Connect(function() if i.UserInputState == Enum.UserInputState.End then dragging = false end end)
 		end
 	end)
-	UIS.InputChanged:Connect(function(i)
+	self:_track(UIS.InputChanged:Connect(function(i)
 		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
 			local d = i.Position - dragStart
 			main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
 			self._pos = main.Position
 		end
-	end)
+	end))
 
+	---------------------------------------------------------------- SIDEBAR (danh sách tab) + PROFILE
+	local PROFILE_H = 36
+	local side = new("Frame", {
+		Name = "Sidebar", Size = UDim2.new(0, SIDE_W, 1, -TITLE_H), Position = UDim2.fromOffset(0, TITLE_H),
+		BackgroundColor3 = C.Black, BackgroundTransparency = .55, BorderSizePixel = 0, ZIndex = 2, Parent = body,
+	})
+	new("Frame", {
+		AnchorPoint = Vector2.new(1, 0), Size = UDim2.new(0, 1, 1, 0), Position = UDim2.fromScale(1, 0),
+		BackgroundColor3 = C.White, BackgroundTransparency = .93, BorderSizePixel = 0, ZIndex = 3, Parent = side,
+	})
+	local tabList = new("ScrollingFrame", {
+		Size = UDim2.new(1, 0, 1, -PROFILE_H), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0,
+		CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 3, Parent = side,
+	}, {list(2), padding(6, 6, 6, 6)})
+	self.TabList, self._side = tabList, side
+
+	local prof = new("Frame", {
+		Size = UDim2.new(1, 0, 0, PROFILE_H), Position = UDim2.new(0, 0, 1, -PROFILE_H),
+		BackgroundTransparency = 1, ZIndex = 3, Parent = side,
+	})
+	new("Frame", {Size = UDim2.new(1, -12, 0, 1), Position = UDim2.fromOffset(6, 0), BackgroundColor3 = C.White, BackgroundTransparency = .93, BorderSizePixel = 0, ZIndex = 3, Parent = prof})
+	local av = new("ImageLabel", {
+		AnchorPoint = Vector2.new(0, .5), Size = UDim2.fromOffset(22, 22), Position = UDim2.new(0, 9, .5, 1),
+		BackgroundColor3 = C.ItemHov, BorderSizePixel = 0, ZIndex = 4,
+		Image = "rbxthumb://type=AvatarHeadShot&id=" .. lp.UserId .. "&w=48&h=48", Parent = prof,
+	}, {pill()})
+	local pnames = new("Frame", {
+		Size = UDim2.new(1, -40, 1, 0), Position = UDim2.fromOffset(37, 1), BackgroundTransparency = 1, ZIndex = 4, Parent = prof,
+	}, {new("UIListLayout", {FillDirection = Enum.FillDirection.Vertical, VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder})})
+	local pn1 = label(lp.DisplayName, 10, C.Text, F.Semi); pn1.Size = UDim2.new(1, 0, 0, 12); pn1.ZIndex = 4; pn1.LayoutOrder = 1; pn1.Parent = pnames
+	local pn2 = label(tostring(cfg.Footer or ("@" .. lp.Name)), 9, C.Sub); pn2.Size = UDim2.new(1, 0, 0, 11); pn2.ZIndex = 4; pn2.LayoutOrder = 2; pn2.Parent = pnames
+	self._foot, self._profile, self._pnames = pn2, prof, pnames
+	prof.Visible = cfg.User ~= false
+
+	---------------------------------------------------------------- KHU NỘI DUNG
+	self.Content = new("Frame", {
+		Name = "Content", Size = UDim2.new(1, -SIDE_W, 1, -TITLE_H), Position = UDim2.fromOffset(SIDE_W, TITLE_H),
+		BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 2, Parent = body,
+	})
+
+	---------------------------------------------------------------- GÓC ĐỔI KÍCH THƯỚC
 	local rsState
-
-	---------------------------------------------------------------- GÓC KÉO ĐỔI KÍCH THƯỚC (dưới phải)
-	local gsz = COMPACT and 36 or 26
+	local gsz = COMPACT and 30 or 20
 	local grip = new("Frame", {
-		Name = "ResizeGrip", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -2, 1, -2),
+		Name = "ResizeGrip", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -1, 1, -1),
 		Size = UDim2.fromOffset(gsz, gsz), BackgroundTransparency = 1, Active = true, ZIndex = 20, Parent = body,
 	})
-	local gi = Icon("move-diagonal-2", grip, 12, C.Sub)
-	gi.Root.AnchorPoint = Vector2.new(1, 1); gi.Root.Position = UDim2.new(1, -5, 1, -5); gi.Root.ZIndex = 21
+	local gi = Icon("move-diagonal-2", grip, 11, C.Sub)
+	gi.Root.AnchorPoint = Vector2.new(1, 1); gi.Root.Position = UDim2.new(1, -4, 1, -4); gi.Root.ZIndex = 21
 	self._grip = grip
+	grip.Visible = cfg.Resizable ~= false
 	grip.MouseEnter:Connect(function() if not rsState then gi.SetColor(C.White) end end)
 	grip.MouseLeave:Connect(function() if not rsState then gi.SetColor(C.Sub) end end)
 	grip.InputBegan:Connect(function(i)
@@ -571,139 +1056,66 @@ function UI.new(cfg)
 			end)
 		end
 	end)
-	UIS.InputChanged:Connect(function(i)
+	self:_track(UIS.InputChanged:Connect(function(i)
 		if not rsState then return end
 		if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
 		local fit, vp, st = self._fit, viewport(), rsState
 		local d = i.Position - st.p
-		local maxW = math.max(MINSIZE.X, (vp.X - 8 - st.left) / fit)
-		local maxH = math.max(MINSIZE.Y, (vp.Y - 8 - st.top) / fit)
-		local w = math.clamp(st.size.X + d.X / fit, MINSIZE.X, maxW)
-		local h = math.clamp(st.size.Y + d.Y / fit, MINSIZE.Y, maxH)
+		local maxW = math.max(MIN_SIZE.X, (vp.X - 8 - st.left) / fit)
+		local maxH = math.max(MIN_SIZE.Y, (vp.Y - 8 - st.top) / fit)
+		local w = math.clamp(st.size.X + d.X / fit, MIN_SIZE.X, maxW)
+		local h = math.clamp(st.size.Y + d.Y / fit, MIN_SIZE.Y, maxH)
 		local a = Active[main]; if a and a.Size then a.Size:Cancel() end
-		-- main neo giữa theo chiều ngang -> dịch tâm nửa phần nở thêm để mép trái đứng yên
 		main.Size = UDim2.fromOffset(w, h)
 		main.Position = UDim2.new(st.pos.X.Scale, st.pos.X.Offset + (w - st.size.X) * fit / 2, st.pos.Y.Scale, st.pos.Y.Offset)
 		self._pos = main.Position
 		self._size = Vector2.new(w, h); self._userSize = self._size
-	end)
+	end))
 	main:GetPropertyChangedSignal("Size"):Connect(function() self:_relayout() end)
 
-	---------------------------------------------------------------- THANH TAB
-	local tabBar = new("ScrollingFrame", {
-		Size = UDim2.new(1, -20, 0, 36), Position = UDim2.fromOffset(10, 52),
-		BackgroundColor3 = C.White, BorderSizePixel = 0, ScrollBarThickness = 0,
-		CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.X,
-		ScrollingDirection = Enum.ScrollingDirection.X, Parent = body,
-	}, {
-		corner(6),
-		new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 4), VerticalAlignment = Enum.VerticalAlignment.Center}),
-		new("UIPadding", {PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4)}),
-	})
-	grad(tabBar, C.Panel1, C.Panel2, 90)
-	local ts = stroke(C.Stroke, 1); ts.Transparency = .3; ts.Parent = tabBar
-	self.TabBar = tabBar
-
-	-- mờ 2 mép khi còn tab bị che (báo hiệu có thể vuốt)
-	local function edge(right)
-		local f = new("Frame", {
-			Size = UDim2.fromOffset(26, 36), AnchorPoint = Vector2.new(right and 1 or 0, 0),
-			Position = right and UDim2.new(1, -10, 0, 52) or UDim2.fromOffset(10, 52),
-			BackgroundColor3 = C.Panel2, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3, Parent = body,
-		}, {corner(6)})
-		new("UIGradient", {
-			Transparency = NumberSequence.new(right and 1 or 0, right and 0 or 1), Parent = f,
-		})
-		return f
-	end
-	local edgeL, edgeR = edge(false), edge(true)
-	local function updEdges()
-		local k = tabBar.AbsoluteSize.Y / 36
-		if k <= 0 then return end
-		local maxX = math.max(0, (tabBar.AbsoluteCanvasSize.X - tabBar.AbsoluteSize.X) / k)
-		local x = tabBar.CanvasPosition.X
-		tw(edgeL, {BackgroundTransparency = x > 3 and 0 or 1}, .15)
-		tw(edgeR, {BackgroundTransparency = x < maxX - 3 and 0 or 1}, .15)
-	end
-	tabBar:GetPropertyChangedSignal("CanvasPosition"):Connect(updEdges)
-	tabBar:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(updEdges)
-	tabBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(updEdges)
-
-	self.Content = new("Frame", {
-		Size = UDim2.new(1, -20, 1, -(96 + FOOT + 4)), Position = UDim2.fromOffset(10, 96),
-		BackgroundTransparency = 1, ClipsDescendants = true, Parent = body,
-	})
-
-	-- Footer: thanh riêng, tách khỏi nội dung, căn giữa theo chiều dọc
-	local footBar = new("Frame", {
-		Name = "Footer", Size = UDim2.new(1, 0, 0, FOOT), Position = UDim2.new(0, 0, 1, -FOOT),
-		BackgroundColor3 = C.Black, BackgroundTransparency = .4, BorderSizePixel = 0, ZIndex = 2, Parent = body,
-	})
-	new("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = C.White, BackgroundTransparency = .92, BorderSizePixel = 0, ZIndex = 3, Parent = footBar})
-	new("Frame", {
-		AnchorPoint = Vector2.new(0, .5), Size = UDim2.fromOffset(5, 5), Position = UDim2.new(0, 14, .5, 0),
-		BackgroundColor3 = C.White, BorderSizePixel = 0, ZIndex = 3, Parent = footBar,
-	}, {pill()})
-	local foot = label(cfg.Footer or lp.DisplayName, 10, C.Sub)
-	self._foot = foot
-	foot.AnchorPoint = Vector2.new(0, .5); foot.Position = UDim2.new(0, 26, .5, 0); foot.Size = UDim2.new(1, -(26 + (UIS.KeyboardEnabled and 118 or 40)), 1, 0)
-	foot.ZIndex = 3; foot.Parent = footBar
-	if UIS.KeyboardEnabled then
-		local keycap = new("Frame", {
-			AnchorPoint = Vector2.new(1, .5), Size = UDim2.fromOffset(68, 18), Position = UDim2.new(1, -34, .5, 0),
-			BackgroundColor3 = C.Item, BorderSizePixel = 0, ZIndex = 3, Parent = footBar,
-		}, {corner(5)})
-		local ks = stroke(C.Stroke, 1); ks.Parent = keycap
-		local key = label(keyName(self._key), 9, C.Sub); key.TextXAlignment = Enum.TextXAlignment.Center
-		self._keyLabel = key
-		key.Size = UDim2.fromScale(1, 1); key.ZIndex = 4; key.Parent = keycap
-	end
-
-	---------------------------------------------------------------- DYNAMIC ISLAND (tên + sóng nhạc)
+	---------------------------------------------------------------- DYNAMIC ISLAND (tên + sóng nhạc + thông báo)
 	local isl = new("Frame", {
-		Name = "Island", AnchorPoint = Vector2.new(.5, 0), Position = UDim2.new(.5, 0, 0, ISLAND_TOP),
+		Name = "Island", AnchorPoint = Vector2.new(.5, 0), Position = UDim2.new(.5, 0, 0, ISL_TOP),
 		Size = UDim2.fromOffset(IDLE.X, IDLE.Y), BackgroundTransparency = 1, ZIndex = 20, Parent = gui,
 	})
 	local islCorner = corner(IDLE.Y / 2); islCorner.Parent = isl
 	local islStroke = new("UIStroke", {Thickness = 1.2, Color = C.White, Transparency = 0, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = isl})
-	shine(islStroke, 80, 0.8)
+	shine(islStroke, 80, 0.82)
 
 	local islBody = new("CanvasGroup", {Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.Black, BorderSizePixel = 0, Parent = isl})
 	local bodyCorner = corner(IDLE.Y / 2); bodyCorner.Parent = islBody
 
-	-- lớp thu gọn: TÊN + SÓNG NHẠC kế bên
 	local idleG = new("CanvasGroup", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = islBody})
 	local idleC = new("Frame", {
 		AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(IDLE.X, IDLE.Y),
 		BackgroundTransparency = 1, Parent = idleG,
 	}, {new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center,
-		VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 11), SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder,
 	})})
-	local itxt = label(brand, 11, C.White, F.Brand)
+	local itxt = label(brand, 10, C.White, F.Brand)
 	itxt.AutomaticSize = Enum.AutomaticSize.X; itxt.Size = UDim2.new(0, 0, 1, 0); itxt.LayoutOrder = 1; itxt.Parent = idleC
 	self._itxt = itxt
 
-	local waveBox = new("Frame", {Size = UDim2.fromOffset(27, 20), BackgroundTransparency = 1, LayoutOrder = 2, Parent = idleC})
+	local waveBox = new("Frame", {Size = UDim2.fromOffset(24, 16), BackgroundTransparency = 1, LayoutOrder = 2, Parent = idleC})
 	local phases = {0, 1.7, 3.1, 4.4, 5.6}
 	local speeds = {5.2, 6.6, 4.4, 7.1, 5.8}
 	for n = 1, 5 do
 		local f = new("Frame", {
-			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromOffset((n - 1) * 6 + 1.5, 10),
-			Size = UDim2.fromOffset(3, 4), BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = waveBox,
+			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromOffset((n - 1) * 5.5 + 1.5, 8),
+			Size = UDim2.fromOffset(3, 3), BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = waveBox,
 		}, {pill()})
-		self._waves[n] = {f = f, p = phases[n], s = speeds[n], min = 4, max = 18}
+		self._waves[n] = {f = f, p = phases[n], s = speeds[n], min = 3, max = 14}
 	end
 
-	-- lớp thông báo: huy hiệu trắng + tiêu đề + nội dung
 	local notiG = new("CanvasGroup", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, GroupTransparency = 1, Parent = islBody})
 	local notiC = new("Frame", {
 		AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(NOTI.X, NOTI.Y),
 		BackgroundTransparency = 1, Parent = notiG,
 	})
-	local badge = new("Frame", {Size = UDim2.fromOffset(38, 38), Position = UDim2.fromOffset(13, 12), BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = notiC}, {pill()})
-	local nTitle = label("", 13, C.White, F.Bold); nTitle.Position = UDim2.fromOffset(62, 11); nTitle.Size = UDim2.new(1, -76, 0, 20); nTitle.Parent = notiC
-	local nText = label("", 11, C.Sub); nText.Position = UDim2.fromOffset(62, 32); nText.Size = UDim2.new(1, -76, 0, 18); nText.Parent = notiC
+	local badge = new("Frame", {Size = UDim2.fromOffset(32, 32), Position = UDim2.fromOffset(10, 10), BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = notiC}, {pill()})
+	local nTitle = label("", 12, C.White, F.Bold); nTitle.Position = UDim2.fromOffset(54, 8); nTitle.Size = UDim2.new(1, -66, 0, 18); nTitle.Parent = notiC
+	local nText = label("", 10, C.Sub); nText.Position = UDim2.fromOffset(54, 27); nText.Size = UDim2.new(1, -66, 0, 16); nText.Parent = notiC
 
 	local islHit = new("TextButton", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 25, Parent = isl})
 
@@ -714,91 +1126,89 @@ function UI.new(cfg)
 		if self._imode == "idle" then
 			self:SetVisible(not self.Open)
 		elseif not self._holding then
-			self._token += 1
+			self._token = self._token + 1
 			self:_collapse()
 		end
 	end)
 	islHit.MouseEnter:Connect(function()
-		if self._imode == "idle" then tw(isl, {Size = UDim2.fromOffset(IDLE.X + 10, IDLE.Y + 3)}, .3, Enum.EasingStyle.Back) end
+		if self._imode == "idle" then tw(isl, {Size = UDim2.fromOffset(IDLE.X + 8, IDLE.Y + 2)}, .3, Enum.EasingStyle.Back) end
 	end)
 	islHit.MouseLeave:Connect(function()
 		if self._imode == "idle" then tw(isl, {Size = UDim2.fromOffset(IDLE.X, IDLE.Y)}, .3, Enum.EasingStyle.Back) end
 	end)
 
-	UIS.InputBegan:Connect(function(i, gp)
+	self:_track(UIS.InputBegan:Connect(function(i, gp)
 		if not gp and self._key and i.KeyCode == self._key then self:SetVisible(not self.Open) end
-	end)
+	end))
 
 	-- co giãn theo màn hình
 	local cam = workspace.CurrentCamera
 	if cam then
-		cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-			self._fit, self._size = layout()
-			if self._userSize then
-				local vp = viewport()
-				self._size = Vector2.new(
-					math.clamp(self._userSize.X, MINSIZE.X, math.max(MINSIZE.X, (vp.X - 16) / self._fit)),
-					math.clamp(self._userSize.Y, MINSIZE.Y, math.max(MINSIZE.Y, (vp.Y - TOP - 8) / self._fit)))
-			end
-			if self.Open then tw(scale, {Scale = self._fit}, .3) end
-			local sz = self.Maximized and self:_maxSize() or self._size
-			tw(self.Main, {Size = UDim2.fromOffset(sz.X, sz.Y)}, .3)
-		end)
+		self:_track(cam:GetPropertyChangedSignal("ViewportSize"):Connect(function() self:_refit() end))
 	end
 
+	self:SetIcon(cfg.Icon or cfg.Logo or "zap")
 	self:_relayout()
-	if cfg.Logo then self:SetLogo(cfg.Logo) end
+	self._onClose = cfg.OnClose
+
+	if cfg.Hidden ~= true then
+		task.defer(function() if not self.Open then self:SetVisible(true, nil, true) end end)
+	end
 	return self
 end
 
---------------------------------------------------------------------- TỰ CĂN CHỈNH THEO CỠ CỬA SỔ
--- Hẹp (< 470): gộp 2 cột thành 1 cột cuộn; rộng: trả về 2 cột. Cửa sổ quá hẹp thì ẩn subtitle.
-function UI:_arrange(tab)
-	local single = self._single
-	local c1, c2 = tab.Columns[1], tab.Columns[2]
-	c1.Size = single and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -5, 1, 0)
-	c2.Visible = not single
-	for i, s in ipairs(tab._secs or {}) do
-		s.box.LayoutOrder = (single and s.col == 2) and (1000 + i) or i
-		s.box.Parent = (single or s.col ~= 2) and c1 or c2
-	end
-end
-
-function UI:_relayout()
+--------------------------------------------------------------------- LAYOUT: sidebar chỉ icon khi cửa sổ hẹp
+function Window:_relayout()
 	local w = self.Main.Size.X.Offset
-	local single = w < 470
-	if self._single ~= single then
-		self._single = single
-		for _, tab in ipairs(self.Tabs) do self:_arrange(tab) end
-	end
-	if self._sub then self._sub.Visible = self._sub.Text ~= "" and w >= 420 end
+	local mini = w < MINI_AT
+	if self._sub then self._sub.Visible = self._sub.Text ~= "" and w >= 360 end
+	if self._mini == mini and self._laidOut then return end
+	self._mini, self._laidOut = mini, true
+	local sw = mini and SIDE_MINI or SIDE_W
+	tw(self._side, {Size = UDim2.new(0, sw, 1, -TITLE_H)}, .25)
+	tw(self.Content, {Size = UDim2.new(1, -sw, 1, -TITLE_H), Position = UDim2.fromOffset(sw, TITLE_H)}, .25)
+	self._pnames.Visible = not mini
+	for _, t in ipairs(self.Tabs) do t:_applyMini(mini) end
+	for _, s in ipairs(self._sections or {}) do s:_applyMini(mini) end
 end
 
---------------------------------------------------------------------- ĐẢO: chuyển trạng thái
-function UI:_mode(m)
+function Window:_refit()
+	self._fit = fitScale(self._size, self._userScale)
+	if self._userSize then
+		local vp = viewport()
+		self._size = Vector2.new(
+			math.clamp(self._userSize.X, MIN_SIZE.X, math.max(MIN_SIZE.X, (vp.X - 16) / self._fit)),
+			math.clamp(self._userSize.Y, MIN_SIZE.Y, math.max(MIN_SIZE.Y, (vp.Y - TOP - 8) / self._fit)))
+	end
+	if self.Open then tw(self._scale, {Scale = self._fit}, .3) end
+	local sz = self.Maximized and self:_maxSize() or self._size
+	tw(self.Main, {Size = UDim2.fromOffset(sz.X, sz.Y)}, .3)
+end
+
+--------------------------------------------------------------------- ĐẢO: chuyển trạng thái / nội dung
+function Window:_mode(m)
 	self._imode = m
-	local sz = (m == "idle") and IDLE or NOTI
-	local r = (m == "idle") and (IDLE.Y / 2) or 31
-	tw(self._isl, {Size = UDim2.fromOffset(sz.X, sz.Y)}, .55, Enum.EasingStyle.Back)
+	local s = (m == "idle") and IDLE or NOTI
+	local r = (m == "idle") and (IDLE.Y / 2) or 26
+	tw(self._isl, {Size = UDim2.fromOffset(s.X, s.Y)}, .55, Enum.EasingStyle.Back)
 	tw(self._islCorner, {CornerRadius = UDim.new(0, r)}, .4)
 	tw(self._bodyCorner, {CornerRadius = UDim.new(0, r)}, .4)
 	tw(self._idleG, {GroupTransparency = (m == "idle") and 0 or 1}, .25)
 	tw(self._notiG, {GroupTransparency = (m == "noti") and 0 or 1}, .3)
 end
 
-function UI:_setContent(kind, title, text, loading)
-	self._dotTok += 1
+function Window:_setContent(d)
+	self._dotTok = self._dotTok + 1
 	for _, c in ipairs(self._badge:GetChildren()) do
-		if c:IsA("Frame") then c:Destroy() end
+		if c:IsA("Frame") or c:IsA("ImageLabel") then c:Destroy() end
 	end
 
-	if loading then
-		-- vòng xoay tự vẽ (đen trên nền trắng)
+	if d.Loading then
 		local spin = new("Frame", {
-			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(22, 22),
+			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(19, 19),
 			BackgroundTransparency = 1, Parent = self._badge,
 		}, {pill()})
-		local st = new("UIStroke", {Color = C.Black, Thickness = 2.6, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = spin})
+		local st = new("UIStroke", {Color = C.Black, Thickness = 2.4, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = spin})
 		local g = new("UIGradient", {
 			Transparency = NumberSequence.new({
 				NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.45, 0.15),
@@ -807,8 +1217,7 @@ function UI:_setContent(kind, title, text, loading)
 		})
 		Spin[g] = 420
 
-		-- "Loading" + dấu chấm chạy
-		local base = (title:gsub("%.+$", ""))
+		local base = (tostring(d.Title):gsub("%.+$", ""))
 		local dt = self._dotTok
 		self._nTitle.Text = base
 		task.spawn(function()
@@ -820,31 +1229,29 @@ function UI:_setContent(kind, title, text, loading)
 			end
 		end)
 	else
-		self._nTitle.Text = title
-		local ic = Icon(KIND_ICON[kind] or "info", self._badge, 22, C.Black)
+		self._nTitle.Text = tostring(d.Title)
+		local ic = AnyIcon(d.Icon or KIND_ICON[d.Kind] or "info", self._badge, 18, C.Black)
 		ic.Root.AnchorPoint = Vector2.new(.5, .5); ic.Root.Position = UDim2.fromScale(.5, .5)
 		local s = new("UIScale", {Scale = 0.2, Parent = ic.Root})
 		tw(s, {Scale = 1}, .5, Enum.EasingStyle.Back)
-		-- huy hiệu "nảy" nhẹ
 		local bs = self._badge:FindFirstChildOfClass("UIScale") or new("UIScale", {Parent = self._badge})
 		bs.Scale = 0.8
 		tw(bs, {Scale = 1}, .5, Enum.EasingStyle.Back)
 	end
-	self._nText.Text = text
+	self._nText.Text = tostring(d.Text or "")
 
-	-- chữ trượt lên + hiện dần
-	self._nTitle.Position = UDim2.fromOffset(62, 17); self._nTitle.TextTransparency = 1
-	self._nText.Position = UDim2.fromOffset(62, 38); self._nText.TextTransparency = 1
-	tw(self._nTitle, {Position = UDim2.fromOffset(62, 11), TextTransparency = 0}, .4)
+	self._nTitle.Position = UDim2.fromOffset(54, 14); self._nTitle.TextTransparency = 1
+	self._nText.Position = UDim2.fromOffset(54, 33); self._nText.TextTransparency = 1
+	tw(self._nTitle, {Position = UDim2.fromOffset(54, 8), TextTransparency = 0}, .4)
 	task.delay(.06, function()
-		tw(self._nText, {Position = UDim2.fromOffset(62, 32), TextTransparency = 0}, .4)
+		tw(self._nText, {Position = UDim2.fromOffset(54, 27), TextTransparency = 0}, .4)
 	end)
 end
 
-function UI:_present(d)
-	self._token += 1
+function Window:_present(d)
+	self._token = self._token + 1
 	local tok = self._token
-	self:_setContent(d.Kind or "info", d.Title or "", d.Text or "", d.Loading)
+	self:_setContent(d)
 	self:_mode("noti")
 	if not d.Hold then
 		task.delay(d.Duration or 3, function()
@@ -853,25 +1260,32 @@ function UI:_present(d)
 	end
 end
 
-function UI:_collapse()
+function Window:_collapse()
 	local nxt = table.remove(self._pending, 1)
 	if nxt then
 		self:_present(nxt)
 	else
-		self._dotTok += 1
+		self._dotTok = self._dotTok + 1
 		self:_mode("idle")
 	end
 end
 
---------------------------------------------------------------------- NOTIFY (hiện ngay trong Dynamic Island)
--- Kind: "success" | "error" | "info"
-function UI:Notify(o)
-	local d = {Kind = o.Kind or "info", Title = o.Title or "Notice", Text = o.Text or "", Duration = o.Duration or 3}
+-- Window:Notify({Title = "...", Content = "...", Duration = 3, Icon = "bell", Kind = "success"|"error"|"info"})
+function Window:Notify(o)
+	o = o or {}
+	local d = {
+		Kind = o.Kind or "info", Title = o.Title or "Notice", Text = o.Content or o.Text or o.Desc or "",
+		Duration = o.Duration or 3, Icon = o.Icon,
+	}
 	if self._holding then table.insert(self._pending, d) else self:_present(d) end
 end
+-- UI:Notify(...) dùng cửa sổ đang hoạt động (giống WindUI:Notify)
+function UI:Notify(o)
+	if UI._active then UI._active:Notify(o) end
+end
 
--- Loading -> :Success() / :Fail()
-function UI:Loading(title, text)
+-- local l = Window:Loading("Loading", "Please wait"); ... l:Success("Loaded", "Done") / l:Fail("Error", "...")
+function Window:Loading(title, text)
 	self._holding = true
 	self:_present({Kind = "info", Title = title, Text = text, Loading = true, Hold = true})
 	local obj = {}
@@ -883,17 +1297,21 @@ function UI:Loading(title, text)
 	function obj:Fail(nt, nd, dur) fin("error", nt, nd, dur) end
 	return obj
 end
+function UI:Loading(title, text)
+	if UI._active then return UI._active:Loading(title, text) end
+	return {Success = function() end, Fail = function() end}
+end
 
 --------------------------------------------------------------------- MỞ / ĐÓNG / PHÓNG TO
-function UI:SetVisible(v, how, silent)
+function Window:SetVisible(v, how, silent)
 	v = v and true or false
 	if self.Open == v then return end
 	self.Open = v
-	self._vis += 1
+	self._vis = self._vis + 1
 	local tok = self._vis
 	local main, scale, body, rim = self.Main, self._scale, self._body, self._rimStroke
 	local fit = self._fit
-	local islandPos = UDim2.new(.5, 0, 0, ISLAND_TOP + 6)
+	local islandPos = UDim2.new(.5, 0, 0, ISL_TOP + 6)
 
 	if v then
 		main.Visible = true
@@ -924,7 +1342,7 @@ function UI:SetVisible(v, how, silent)
 		end)
 	end
 
-	if not silent then
+	if not silent and self._notifyState then
 		if v then
 			self:Notify({Kind = "success", Title = "Interface opened", Text = "Press " .. keyName(self._key) .. " or tap the island to hide", Duration = 1.6})
 		else
@@ -932,15 +1350,18 @@ function UI:SetVisible(v, how, silent)
 		end
 	end
 end
+function Window:Open() self:SetVisible(true) end
+function Window:Close() self:SetVisible(false) end
+function Window:Toggle() self:SetVisible(not self.Open) end
 
-function UI:_maxSize()
+function Window:_maxSize()
 	local vp = viewport()
-	local w = math.max(self._size.X, math.min(900, (vp.X - 16) / self._fit))
+	local w = math.max(self._size.X, math.min(760, (vp.X - 16) / self._fit))
 	local h = math.max(self._size.Y, (vp.Y - TOP - 8) / self._fit)
 	return Vector2.new(w, h)
 end
 
-function UI:ToggleMax()
+function Window:ToggleMax()
 	self.Maximized = not self.Maximized
 	local main = self.Main
 	if self.Maximized then
@@ -957,285 +1378,242 @@ function UI:ToggleMax()
 end
 
 --------------------------------------------------------------------- CHỈNH TỪ BÊN NGOÀI
-function UI:SetTitle(t)
+function Window:SetTitle(t)
 	t = string.upper(tostring(t or ""))
 	self._title.Text = t; self._itxt.Text = t
 end
-function UI:SetSubtitle(t)
+function Window:SetAuthor(t)
 	t = tostring(t or "")
 	self._sub.Text = t; self:_relayout()
 end
-function UI:SetLogo(src) -- id / rbxassetid / URL; nil = icon mặc định
-	self._logoTok = (self._logoTok or 0) + 1
-	local tok = self._logoTok
-	local function fallback()
-		self._logoImg.Visible = false; self._logoIcon.Root.Visible = true; self._logo.BackgroundTransparency = 0
-	end
-	if not src or src == "" then return fallback() end
-	resolveAsset(src, function(a)
-		if self._logoTok ~= tok or not self._logoImg.Parent then return end
-		if not a then return fallback() end
-		self._logoImg.Image = a; self._logoImg.Visible = true
-		self._logoIcon.Root.Visible = false; self._logo.BackgroundTransparency = 1
-	end)
+function Window:SetIcon(spec) -- tên Lucide hoặc id / rbxassetid / URL
+	if self._logoIcon then self._logoIcon.Root:Destroy(); self._logoIcon = nil end
+	if not spec or spec == "" then return end
+	self._logo.BackgroundTransparency = 0
+	local ic = AnyIcon(spec, self._logo, 14, C.White)
+	ic.Root.AnchorPoint = Vector2.new(.5, .5); ic.Root.Position = UDim2.fromScale(.5, .5); ic.Root.ZIndex = 5
+	self._logoIcon = ic
 end
-function UI:SetFooter(t) self._foot.Text = tostring(t or "") end
-function UI:SetKey(k)
-	self._key = keyOf(k)
-	if self._keyLabel then self._keyLabel.Text = keyName(self._key) end
+function Window:SetFooter(t) self._foot.Text = tostring(t or "") end
+function Window:SetToggleKey(k) self._key = keyOf(k) or self._key end
+function Window:SetScale(n)
+	self._userScale = math.clamp(tonumber(n) or 1, .5, 1.5)
+	self:_refit()
 end
-function UI:Destroy() self.Gui:Destroy() end
+function Window:OnClose(fn) self._onClose = fn end
+function Window:Destroy() self.Gui:Destroy() end
 
---------------------------------------------------------------------- TAB
--- AddTab("Home", "house")  hoặc  AddTab({Name = "Home", Icon = "rbxassetid://123" | "https://.../i.png"})
-function UI:AddTab(name, icon)
-	if type(name) == "table" then name, icon = name.Name or name.Title or "Tab", name.Icon end
-	local tab = {Window = self, Name = name}
+--------------------------------------------------------------------- CONFIG (lưu / nạp giá trị các element có Flag)
+function Window:SaveConfig(name)
+	name = tostring(name or "default")
+	if not (writefile and makefolder and isfolder) then return false end
+	local data = {}
+	for flag, el in pairs(self.Flags) do
+		local ok, v = pcall(function() return el:Get() end)
+		if ok and v ~= nil then data[flag] = v end
+	end
+	local ok = pcall(function()
+		if not isfolder(self.Folder) then makefolder(self.Folder) end
+		writefile(self.Folder .. "/" .. name .. ".json", HttpService:JSONEncode(data))
+	end)
+	return ok
+end
+function Window:LoadConfig(name)
+	name = tostring(name or "default")
+	if not (readfile and isfile) then return false end
+	local path = self.Folder .. "/" .. name .. ".json"
+	if not isfile(path) then return false end
+	local ok, data = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
+	if not ok or type(data) ~= "table" then return false end
+	for flag, v in pairs(data) do
+		local el = self.Flags[flag]
+		if el then pcall(function() el:Set(v) end) end
+	end
+	return true
+end
+
+--------------------------------------------------------------------- SIDEBAR: Divider / Section (nhóm tab) / Tab
+function Window:Divider()
+	new("Frame", {
+		Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = C.White, BackgroundTransparency = .93, BorderSizePixel = 0,
+		LayoutOrder = #self.TabList:GetChildren(), Parent = self.TabList,
+	})
+end
+
+local function tabHolder(self) return self._tabParent or self.TabList end
+
+function Window:_newTab(parent, cfg)
+	if type(cfg) == "string" then cfg = {Title = cfg} end
+	cfg = cfg or {}
+	local name = tostring(cfg.Title or cfg.Name or "Tab")
+	local tab = setmetatable({Window = self, Name = name, _win = self, _order = 0}, TabC)
 
 	local btn = new("TextButton", {
-		Size = UDim2.new(0, 0, 0, 28), AutomaticSize = Enum.AutomaticSize.X,
-		BackgroundColor3 = RGB(46, 46, 46), BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false,
-		Text = "", Parent = self.TabBar,
-	}, {
-		corner(4),
-		new("UIPadding", {PaddingLeft = UDim.new(0, COMPACT and 9 or 11), PaddingRight = UDim.new(0, COMPACT and 9 or 11)}),
-		new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, COMPACT and 5 or 6), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder}),
+		Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = C.ItemHov, BackgroundTransparency = 1, BorderSizePixel = 0,
+		AutoButtonColor = false, Text = "", LayoutOrder = #parent:GetChildren(), Parent = parent,
+	}, {corner(6)})
+	local lay = new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 7), VerticalAlignment = Enum.VerticalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder, Parent = btn,
 	})
+	local pd = new("UIPadding", {PaddingLeft = UDim.new(0, 9), Parent = btn})
 	local ic
-	if icon and icon ~= "" then
-		ic = AnyIcon(icon, btn, COMPACT and 13 or 14, C.Sub); ic.Root.LayoutOrder = 1
+	if cfg.Icon and cfg.Icon ~= "" then
+		ic = AnyIcon(cfg.Icon, btn, 14, C.Sub); ic.Root.LayoutOrder = 1
 	end
-	local txt = label(name, COMPACT and 10 or 11, C.Sub, F.Bold)
-	txt.Size = UDim2.new(0, 0, 1, 0); txt.AutomaticSize = Enum.AutomaticSize.X; txt.LayoutOrder = 2; txt.Parent = btn
-	tab.Button, tab.Text, tab.Icon = btn, txt, ic
+	local txt = label(name, 10.5, C.Sub, F.Semi)
+	txt.Size = UDim2.new(1, -30, 1, 0); txt.LayoutOrder = 2; txt.Parent = btn
+	local bar = new("Frame", {
+		AnchorPoint = Vector2.new(0, .5), Position = UDim2.new(0, 0, .5, 0), Size = UDim2.fromOffset(3, 0),
+		BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = btn,
+	}, {pill()})
+	tab.Button, tab.Text, tab.Icon, tab._bar, tab._lay, tab._pd = btn, txt, ic, bar, lay, pd
 
-	btn.MouseEnter:Connect(function()
-		if self.Current ~= tab then tw(btn, {BackgroundTransparency = .5}, .15) end
-	end)
-	btn.MouseLeave:Connect(function()
-		if self.Current ~= tab then tw(btn, {BackgroundTransparency = 1}, .15) end
-	end)
-
-	local page = new("Frame", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, Parent = self.Content})
-	local function column(x)
-		return new("ScrollingFrame", {
-			Size = UDim2.new(0.5, -5, 1, 0), Position = UDim2.new(x, x == 0 and 0 or 5, 0, 0),
-			BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, ScrollBarImageColor3 = C.Sub,
-			ScrollBarImageTransparency = .4, VerticalScrollBarInset = Enum.ScrollBarInset.None,
-			CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = page,
-		}, {
-			list(8),
-			-- 1px đệm 3 phía để viền (stroke) không bị cắt; đệm dưới để mục cuối không dính mép
-			new("UIPadding", {PaddingTop = UDim.new(0, 1), PaddingLeft = UDim.new(0, 1), PaddingRight = UDim.new(0, 1), PaddingBottom = UDim.new(0, 8)}),
-		})
+	function tab:_applyMini(mini)
+		txt.Visible = not mini
+		lay.HorizontalAlignment = mini and Enum.HorizontalAlignment.Center or Enum.HorizontalAlignment.Left
+		pd.PaddingLeft = UDim.new(0, mini and 0 or 9)
 	end
-	tab.Page = page
-	tab.Columns = {column(0), column(0.5)}
+	tab:_applyMini(self._mini)
+
+	btn.MouseEnter:Connect(function() if self.Current ~= tab then tw(btn, {BackgroundTransparency = .6}, .15) end end)
+	btn.MouseLeave:Connect(function() if self.Current ~= tab then tw(btn, {BackgroundTransparency = 1}, .15) end end)
+
+	-- trang nội dung (cuộn dọc, 1 cột)
+	local page = new("ScrollingFrame", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false,
+		ScrollBarThickness = 2, ScrollBarImageColor3 = C.Sub, ScrollBarImageTransparency = .4,
+		VerticalScrollBarInset = Enum.ScrollBarInset.None,
+		CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = self.Content,
+	}, {list(6), new("UIPadding", {PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 10), PaddingBottom = UDim.new(0, 18)})})
+	tab.Page, tab._page, tab._holder = page, page, page
 
 	btn.MouseButton1Click:Connect(function() self:Select(tab) end)
 	table.insert(self.Tabs, tab)
 	if not self.Current then self:Select(tab) end
-
-	setmetatable(tab, {__index = function(_, k) return UI.TabMethods[k] end})
 	return tab
 end
 
-function UI:Select(tab)
+-- Window:Tab({Title = "Main", Icon = "house"})
+function Window:Tab(cfg) return self:_newTab(self.TabList, cfg) end
+
+-- Window:Section({Title = "Combat", Opened = true}) -> section:Tab({...})  (nhóm tab trong sidebar)
+function Window:Section(cfg)
+	if type(cfg) == "string" then cfg = {Title = cfg} end
+	cfg = cfg or {}
+	self._sections = self._sections or {}
+	local box = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+		LayoutOrder = #self.TabList:GetChildren(), Parent = self.TabList,
+	}, {list(2)})
+	local head = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = 1, Parent = box,
+	})
+	local hl = label(string.upper(tostring(cfg.Title or "Section")), 9, C.Sub, F.Bold)
+	hl.Position = UDim2.fromOffset(4, 0); hl.Size = UDim2.new(1, -20, 1, 0); hl.Parent = head
+	local arrow = Icon("chevron-down", head, 11, C.Sub)
+	arrow.Root.AnchorPoint = Vector2.new(1, .5); arrow.Root.Position = UDim2.new(1, -2, .5, 0)
+	local line = new("Frame", {
+		Size = UDim2.new(1, -8, 0, 1), Position = UDim2.fromOffset(4, 9), BackgroundColor3 = C.White, BackgroundTransparency = .93,
+		BorderSizePixel = 0, Visible = false, Parent = head,
+	})
+	local holder = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 2, Parent = box,
+	}, {list(2)})
+
+	local win = self
+	local opened = cfg.Opened ~= false
+	local sec = {}
+	local function apply(anim)
+		holder.Visible = opened or win._mini
+		if anim then tw(arrow.Root, {Rotation = opened and 0 or -90}, .2) else arrow.Root.Rotation = opened and 0 or -90 end
+	end
+	apply(false)
+	function sec:_applyMini(mini)
+		hl.Visible = not mini; arrow.Root.Visible = not mini; line.Visible = mini
+		head.Size = UDim2.new(1, 0, 0, mini and 10 or 20)
+		apply(false)
+	end
+	function sec:Tab(c) return win:_newTab(holder, c) end
+	function sec:Open() opened = true; apply(true) end
+	function sec:Close() opened = false; apply(true) end
+	head.MouseButton1Click:Connect(function() opened = not opened; apply(true) end)
+	table.insert(self._sections, sec)
+	sec:_applyMini(self._mini)
+	return sec
+end
+
+-- Window:SelectTab(1)  hoặc  Window:SelectTab(tab)
+function Window:SelectTab(t)
+	if type(t) == "number" then t = self.Tabs[t] end
+	if t then self:Select(t) end
+end
+
+function Window:Select(tab)
 	local prev = self.Current
 	for _, t in ipairs(self.Tabs) do
 		local on = (t == tab)
-		tw(t.Button, {BackgroundTransparency = on and 0 or 1}, .22)
+		tw(t.Button, {BackgroundTransparency = on and .35 or 1}, .22)
 		tw(t.Text, {TextColor3 = on and C.White or C.Sub}, .22)
+		tw(t._bar, {Size = UDim2.fromOffset(3, on and 12 or 0)}, .25, Enum.EasingStyle.Back)
 		if t.Icon then t.Icon.SetColor(on and C.White or C.Sub) end
 		if on then
 			if prev ~= tab then
-				t.Page.Position = UDim2.fromOffset(0, 14)
+				t.Page.Position = UDim2.fromOffset(0, 12)
 				t.Page.Visible = true
-				tw(t.Page, {Position = UDim2.fromOffset(0, 0)}, .35, Enum.EasingStyle.Quint)
+				tw(t.Page, {Position = UDim2.fromOffset(0, 0)}, .35)
 			end
 		else
 			t.Page.Visible = false
 		end
 	end
 	self.Current = tab
-	self:_reveal(tab)
 end
 
--- cuộn thanh tab để tab đang chọn nằm giữa (không bị che)
-function UI:_reveal(tab)
-	local bar, b = self.TabBar, tab.Button
-	task.defer(function()
-		if not (bar.Parent and b.Parent) then return end
-		local k = bar.AbsoluteSize.Y / 36
-		if k <= 0 then return end
-		local left = (b.AbsolutePosition.X - bar.AbsolutePosition.X) / k + bar.CanvasPosition.X
-		local w, view = b.AbsoluteSize.X / k, bar.AbsoluteSize.X / k
-		local maxX = math.max(0, bar.AbsoluteCanvasSize.X / k - view)
-		tw(bar, {CanvasPosition = Vector2.new(math.clamp(left - (view - w) / 2, 0, maxX), 0)}, .3)
-	end)
-end
-
---------------------------------------------------------------------- SECTION
-UI.TabMethods = {}
-
-function UI.TabMethods.SetName(tab, n) tab.Name = n; tab.Text.Text = n end
-function UI.TabMethods.SetIcon(tab, spec)
-	if tab.Icon then tab.Icon.Root:Destroy(); tab.Icon = nil end
+function TabC:Select() self.Window:Select(self) end
+function TabC:SetTitle(n) self.Name = tostring(n); self.Text.Text = tostring(n) end
+function TabC:SetIcon(spec)
+	if self.Icon then self.Icon.Root:Destroy(); self.Icon = nil end
 	if spec and spec ~= "" then
-		tab.Icon = AnyIcon(spec, tab.Button, 14, tab.Window.Current == tab and C.White or C.Sub)
-		tab.Icon.Root.LayoutOrder = 1
+		self.Icon = AnyIcon(spec, self.Button, 14, self.Window.Current == self and C.White or C.Sub)
+		self.Icon.Root.LayoutOrder = 1
 	end
 end
 
-function UI.TabMethods.AddSection(tab, name, col)
-	local sec = {}
-	local order = 0
-	local function nextOrder() order += 1; return order end
+--------------------------------------------------------------------- EXAMPLE (bỏ comment để thử)
+--[[
+local UI = loadstring(game:HttpGet("URL_CUA_FILE_NAY"))()
 
-	local box = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = tab.Columns[col or 1],
-	}, {corner(6), pad(9), list(6)})
-	grad(box, C.Panel1, C.Panel2, 90)
-	local bs = stroke(C.Stroke, 1); bs.Transparency = .2; bs.Parent = box
+local Window = UI:CreateWindow({
+	Title = "Ryzen Hub",
+	Author = "by Ryzen",          -- dòng nhỏ dưới tên
+	Icon = "zap",                 -- tên Lucide hoặc asset id / URL
+	Folder = "RyzenHub",          -- thư mục lưu config
+	Size = UDim2.fromOffset(470, 285),
+	Scale = 1,                    -- nhỏ/to hơn: 0.85, 1, 1.1 ...
+	ToggleKey = Enum.KeyCode.RightControl,
+})
 
-	local head = new("Frame", {Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1, LayoutOrder = 0, Parent = box})
-	new("Frame", {Size = UDim2.fromOffset(5, 5), Position = UDim2.fromOffset(1, 7), BackgroundColor3 = C.White, BorderSizePixel = 0, Parent = head}, {pill()})
-	local hl = label(string.upper(name), 10, C.Text, F.Bold); hl.Position = UDim2.fromOffset(14, 0); hl.Size = UDim2.new(1, -14, 1, 0); hl.Parent = head
-	sec.Box = box
-	tab._secs = tab._secs or {}
-	table.insert(tab._secs, {box = box, col = col or 1})
-	if tab.Window._single then tab.Window:_arrange(tab) end
-	function sec:SetName(n) hl.Text = string.upper(tostring(n)) end
+local Main = Window:Tab({Title = "Main", Icon = "house"})
+Main:Section({Title = "Farm"})   -- tiêu đề nhóm; muốn gom element vào nhóm: local s = Main:Section(...); s:Toggle(...)
+Main:Toggle({Title = "Auto Farm", Desc = "Tự động farm", Value = false, Flag = "AutoFarm", Callback = function(v) print(v) end})
+Main:Slider({Title = "Speed", Step = 1, Value = {Min = 0, Max = 100, Default = 50}, Flag = "Speed", Callback = function(v) print(v) end})
+Main:Dropdown({Title = "Mode", Values = {"Normal", "Fast", "Insane"}, Value = "Normal", Flag = "Mode", Callback = function(v) print(v) end})
+Main:Dropdown({Title = "Targets", Values = {"A", "B", "C"}, Multi = true, Value = {"A"}, Callback = function(t) print(#t) end})
+Main:Input({Title = "Webhook", Placeholder = "https://...", Callback = function(t) print(t) end})
+Main:Keybind({Title = "Fly", Value = "F", Callback = function() print("fly") end})
+Main:Button({Title = "Teleport", Desc = "Về spawn", Icon = "map-pin", Callback = function() print("tp") end})
+Main:Paragraph({Title = "Ghi chú", Desc = "Đoạn mô tả dài tự xuống dòng."})
 
-	-- TOGGLE
-	function sec:AddToggle(o)
-		local row = new("TextButton", {
-			Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = C.Item, BorderSizePixel = 0, AutoButtonColor = false, Text = "",
-			LayoutOrder = nextOrder(), Parent = box,
-		}, {corner(5)})
-		local rs = stroke(C.Stroke, 1); rs.Parent = row
-		local t = label(o.Name, 11, C.Text); t.Position = UDim2.fromOffset(12, 0); t.Size = UDim2.new(1, -50, 1, 0); t.Parent = row
+local Settings = Window:Tab({Title = "Settings", Icon = "settings"})
+Settings:Button({Title = "Save config", Callback = function() Window:SaveConfig("default") end})
+Settings:Button({Title = "Load config", Callback = function() Window:LoadConfig("default") end})
 
-		local sw = CreateSwitch(row, o.Default, 20)
-		sw.Track.AnchorPoint = Vector2.new(1, .5); sw.Track.Position = UDim2.new(1, -12, .5, 0)
+-- Nhóm tab trong sidebar:
+-- local G = Window:Section({Title = "Combat"}); local T2 = G:Tab({Title = "Aim", Icon = "crosshair"})
 
-		local function tint(on, anim)
-			local props = {Color = on and C.White or C.Stroke, Transparency = on and .65 or 0}
-			if anim then tw(rs, props, .25) else rs.Color = props.Color; rs.Transparency = props.Transparency end
-		end
-		tint(sw.Get(), false)
-
-		local api = {}
-		function api:Set(v, silent)
-			sw.Set(v); tint(sw.Get(), true)
-			if not silent and o.Callback then task.spawn(o.Callback, sw.Get()) end
-		end
-		function api:Get() return sw.Get() end
-		function api:SetName(n) t.Text = tostring(n) end
-		row.MouseButton1Click:Connect(function() api:Set(not sw.Get()) end)
-		row.MouseEnter:Connect(function() tw(row, {BackgroundColor3 = C.ItemHov}, .15) end)
-		row.MouseLeave:Connect(function() tw(row, {BackgroundColor3 = C.Item}, .15) end)
-		return api
-	end
-
-	-- DROPDOWN
-	function sec:AddDropdown(o)
-		local cur = o.Default or "None"
-		local options = o.Options or {}
-		local wrap = new("Frame", {
-			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
-			LayoutOrder = nextOrder(), Parent = box,
-		}, {list(4)})
-		local lab = label(o.Name, 10, C.Sub); lab.Size = UDim2.new(1, 0, 0, 14); lab.LayoutOrder = 1; lab.Parent = wrap
-		local hd = new("TextButton", {
-			Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = C.Item, BorderSizePixel = 0, AutoButtonColor = false, Text = "",
-			LayoutOrder = 2, Parent = wrap,
-		}, {corner(5)})
-		local hs = stroke(C.Stroke, 1); hs.Parent = hd
-		local val = label(cur, 11, C.Sub); val.Position = UDim2.fromOffset(12, 0); val.Size = UDim2.new(1, -40, 1, 0); val.Parent = hd
-		local arrow = Icon("chevron-down", hd, 12, C.Sub)
-		arrow.Root.AnchorPoint = Vector2.new(.5, .5); arrow.Root.Position = UDim2.new(1, -18, .5, 0)
-
-		local n = #options
-		local fullH = n * 26 + math.max(n - 1, 0) * 2 + 8
-		local opts = new("Frame", {
-			Size = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.Item, BorderSizePixel = 0, ClipsDescendants = true, Visible = false,
-			LayoutOrder = 3, Parent = wrap,
-		}, {corner(5), pad(4), list(2)})
-		local os_ = stroke(C.Stroke, 1); os_.Parent = opts
-
-		local isOpen = false
-		local buttons = {}
-		local function setOpen(v)
-			isOpen = v
-			tw(arrow.Root, {Rotation = v and 180 or 0}, .3, Enum.EasingStyle.Back)
-			tw(hs, {Color = v and C.White or C.Stroke, Transparency = v and .65 or 0}, .2)
-			if v then
-				opts.Visible = true
-				tw(opts, {Size = UDim2.new(1, 0, 0, fullH)}, .3, Enum.EasingStyle.Quint)
-			else
-				local t = tw(opts, {Size = UDim2.new(1, 0, 0, 0)}, .22, Enum.EasingStyle.Quint)
-				t.Completed:Connect(function() if not isOpen then opts.Visible = false end end)
-			end
-		end
-
-		for _, name in ipairs(options) do
-			local b = new("TextButton", {
-				Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = C.White, BackgroundTransparency = 1, BorderSizePixel = 0,
-				Text = name, TextColor3 = C.Sub, TextSize = 11, FontFace = F.Reg, AutoButtonColor = false, Parent = opts,
-			}, {corner(5)})
-			buttons[name] = b
-			b.MouseEnter:Connect(function() tw(b, {BackgroundTransparency = .92}, .12) end)
-			b.MouseLeave:Connect(function() tw(b, {BackgroundTransparency = 1}, .12) end)
-			b.MouseButton1Click:Connect(function()
-				cur = name; val.Text = name; tw(val, {TextColor3 = C.Text}, .2)
-				for nm, bb in pairs(buttons) do tw(bb, {TextColor3 = (nm == name) and C.White or C.Sub}, .15) end
-				setOpen(false)
-				if o.Callback then task.spawn(o.Callback, name) end
-			end)
-		end
-		hd.MouseButton1Click:Connect(function() setOpen(not isOpen) end)
-		hd.MouseEnter:Connect(function() tw(hd, {BackgroundColor3 = C.ItemHov}, .15) end)
-		hd.MouseLeave:Connect(function() tw(hd, {BackgroundColor3 = C.Item}, .15) end)
-		return {Get = function() return cur end}
-	end
-
-	-- NÚT BẤM (trắng, chữ đen)
-	function sec:AddButton(o)
-		local b = new("TextButton", {
-			Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = C.Item, BorderSizePixel = 0, Text = "", AutoButtonColor = false,
-			LayoutOrder = nextOrder(), Parent = box,
-		}, {corner(5)})
-		local sc = new("UIScale", {Parent = b})
-		local bst = stroke(C.Stroke, 1); bst.Parent = b
-		local tl = label(o.Name, 11, C.White, F.Bold); tl.TextXAlignment = Enum.TextXAlignment.Center
-		tl.Size = UDim2.fromScale(1, 1); tl.Parent = b
-		b.MouseEnter:Connect(function() tw(b, {BackgroundColor3 = C.ItemHov}, .2) end)
-		b.MouseLeave:Connect(function() tw(b, {BackgroundColor3 = C.Item}, .2); tw(sc, {Scale = 1}, .2) end)
-		b.MouseButton1Down:Connect(function() tw(sc, {Scale = .96}, .1) end)
-		b.MouseButton1Up:Connect(function() tw(sc, {Scale = 1}, .3, Enum.EasingStyle.Back) end)
-		b.MouseButton1Click:Connect(function() if o.Callback then task.spawn(o.Callback) end end)
-		return {SetName = function(_, n) tl.Text = tostring(n) end}
-	end
-
-	-- Ô thống kê
-	function sec:AddStat(name, value) -- hoặc AddStat({Name = "...", Value = "..."})
-		if type(name) == "table" then name, value = name.Name, name.Value end
-		name, value = tostring(name or ""), tostring(value or "")
-		local f = new("Frame", {Size = UDim2.new(1, 0, 0, 46), BackgroundColor3 = C.Item, BorderSizePixel = 0, LayoutOrder = nextOrder(), Parent = box}, {corner(5), pad(9)})
-		local fs = stroke(C.Stroke, 1); fs.Parent = f
-		local a = label(name, 10, C.Sub); a.Size = UDim2.new(1, 0, 0, 13); a.Parent = f
-		local b = label(value, 12, C.Text, F.Bold); b.Position = UDim2.fromOffset(0, 17); b.Size = UDim2.new(1, 0, 0, 16); b.Parent = f
-		local api = setmetatable({}, {__call = function(_, v) b.Text = tostring(v) end}) -- stat(v) vẫn dùng được
-		function api:SetValue(v) b.Text = tostring(v) end
-		function api:SetName(n) a.Text = tostring(n) end
-		function api:Get() return b.Text end
-		function api:SetVisible(v) f.Visible = v and true or false end
-		return api
-	end
-
-	return sec
-end
+UI:Notify({Title = "Ryzen Hub", Content = "Loaded successfully", Icon = "check", Duration = 3})
+-- local l = UI:Loading("Loading", "Please wait"); task.wait(2); l:Success("Loaded", "Ready")
+]]
 
 return UI
