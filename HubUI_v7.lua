@@ -1,6 +1,5 @@
 -- Ryzen Hub UI v9 — tab ngang + 2 cột card (theo giao diện Ryzen Hub), API kiểu WindUI
--- Icon: các icon của chính UI (check, x, minus, chevron...) tự VẼ bằng Frame -> không bao giờ lỗi/trống.
---       Icon của người dùng (tab, nút, logo...) lấy từ Lucide (lucide.dev); nếu tải lỗi / không có tên đó thì dùng bản vẽ sẵn.
+-- Icon: toàn bộ dùng Lucide (lucide.dev) thật, tải qua module Footagesus/Icons (không còn icon tự vẽ).
 -- Dùng: local UI = loadstring(game:HttpGet("<url của file này>"))()
 -- Xem ví dụ ở cuối file (phần EXAMPLE, đang để comment)
 
@@ -140,137 +139,29 @@ local function shine(strokeObj, speed, base)
 	return g
 end
 
---------------------------------------------------------------------- ICON VẼ SẴN (lưới 24x24, vẽ bằng Frame — không cần tải gì)
--- "L" = đường gấp khúc {x1,y1,x2,y2,...}   "R" = khung chữ nhật {x,y,w,h,bo góc}
--- "C" = vòng tròn {cx,cy,r}                "F" = chấm đặc {cx,cy,r}
-local NATIVE = {
-	check             = {{"L", 4, 12, 9, 17, 20, 6}},
-	x                 = {{"L", 18, 6, 6, 18}, {"L", 6, 6, 18, 18}},
-	minus             = {{"L", 5, 12, 19, 12}},
-	plus              = {{"L", 5, 12, 19, 12}, {"L", 12, 5, 12, 19}},
-	menu              = {{"L", 4, 6, 20, 6}, {"L", 4, 12, 20, 12}, {"L", 4, 18, 20, 18}},
-	square            = {{"R", 4, 4, 16, 16, 3}},
-	copy              = {{"R", 9, 9, 12, 12, 2}, {"L", 9, 15, 3, 15, 3, 3, 15, 3, 15, 9}},
-	["chevron-down"]  = {{"L", 6, 9, 12, 15, 18, 9}},
-	["chevron-up"]    = {{"L", 6, 15, 12, 9, 18, 15}},
-	["chevron-right"] = {{"L", 9, 6, 15, 12, 9, 18}},
-	["chevron-left"]  = {{"L", 15, 6, 9, 12, 15, 18}},
-	["move-diagonal-2"] = {{"L", 20, 9, 9, 20}, {"L", 20, 15, 15, 20}},
-	zap               = {{"L", 13, 2, 4, 14, 12, 14, 11, 22, 20, 10, 12, 10, 13, 2}},
-	house             = {{"L", 3, 11, 12, 3, 21, 11}, {"L", 5, 9.5, 5, 21, 19, 21, 19, 9.5}, {"L", 9.5, 21, 9.5, 14, 14.5, 14, 14.5, 21}},
-	swords            = {
-		{"L", 4, 4, 16, 16}, {"L", 13, 19, 19, 13}, {"L", 16, 16, 20, 20},
-		{"L", 20, 4, 8, 16}, {"L", 5, 13, 11, 19}, {"L", 8, 16, 4, 20},
-	},
-	sword             = {{"L", 4, 4, 16, 16}, {"L", 13, 19, 19, 13}, {"L", 16, 16, 20, 20}},
-	target            = {{"C", 12, 12, 10}, {"C", 12, 12, 6}, {"F", 12, 12, 1.6}},
-	crosshair         = {{"C", 12, 12, 9}, {"L", 12, 2, 12, 7}, {"L", 12, 17, 12, 22}, {"L", 2, 12, 7, 12}, {"L", 17, 12, 22, 12}},
-	layers            = {{"L", 12, 3, 2, 8, 12, 13, 22, 8, 12, 3}, {"L", 2, 12, 12, 17, 22, 12}, {"L", 2, 16, 12, 21, 22, 16}},
-	flag              = {{"L", 5, 22, 5, 3}, {"L", 5, 4, 19, 4, 16, 8.5, 19, 13, 5, 13}},
-	["map-pin"]       = {{"L", 12, 22, 5.2, 12.5, 5, 9, 7, 5, 12, 3, 17, 5, 19, 9, 18.8, 12.5, 12, 22}, {"C", 12, 10, 3}},
-	bell              = {{"L", 5, 17, 7, 15, 7, 9, 9, 5, 12, 4, 15, 5, 17, 9, 17, 15, 19, 17, 5, 17}, {"L", 10, 20, 14, 20}},
-	info              = {{"C", 12, 12, 10}, {"L", 12, 17, 12, 11.5}, {"L", 12, 8, 12, 8}},
-	search            = {{"C", 11, 11, 7}, {"L", 16.5, 16.5, 21, 21}},
-	user              = {{"C", 12, 8, 4}, {"L", 4, 21, 4, 19, 8, 15, 16, 15, 20, 19, 20, 21}},
-	eye               = {{"L", 2, 12, 6, 7.5, 12, 5.5, 18, 7.5, 22, 12, 18, 16.5, 12, 18.5, 6, 16.5, 2, 12}, {"C", 12, 12, 3}},
-	shield            = {{"L", 12, 2, 4, 5, 4, 12, 8, 18, 12, 22, 16, 18, 20, 12, 20, 5, 12, 2}},
-	star              = {{"L", 12, 2.5, 14.8, 8.8, 21.5, 9.4, 16.4, 13.9, 18, 20.6, 12, 17, 6, 20.6, 7.6, 13.9, 2.5, 9.4, 9.2, 8.8, 12, 2.5}},
-	play              = {{"L", 7, 4, 20, 12, 7, 20, 7, 4}},
-	dot               = {{"F", 12, 12, 4}},
-}
-do -- bánh răng (settings)
-	local g = {{"C", 12, 12, 3.2}, {"C", 12, 12, 6.8}}
-	for i = 0, 7 do
-		local a = math.rad(i * 45)
-		local c, s = math.cos(a), math.sin(a)
-		g[#g + 1] = {"L", 12 + c * 8, 12 + s * 8, 12 + c * 10.6, 12 + s * 10.6}
-	end
-	NATIVE.settings = g
-end
-for alias, real in pairs({home = "house", cog = "settings", gear = "settings", ["settings-2"] = "settings",
-	["layers-2"] = "layers", ["maximize-2"] = "move-diagonal-2", close = "x", ["map-pinned"] = "map-pin", pin = "map-pin",
-	["circle-alert"] = "info", ["circle-dot"] = "target"}) do
-	NATIVE[alias] = NATIVE[real]
-end
--- icon của chính UI: luôn dùng bản vẽ sẵn (không phụ thuộc mạng)
-local CHROME = {
-	check = true, x = true, minus = true, square = true, copy = true,
-	["chevron-down"] = true, ["chevron-right"] = true, ["chevron-up"] = true, ["chevron-left"] = true,
-	["move-diagonal-2"] = true,
-}
-
-local function drawNative(name, parent, size, col)
-	local paths = NATIVE[name]
-	if not paths then return nil end
-	local k = size / 24
-	local th = math.max(1.25, 2 * k)
-	local holder = new("Frame", {Name = "Vec", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, Parent = parent})
-	local parts = {}
-
-	local function line(x1, y1, x2, y2)
-		local dx, dy = (x2 - x1) * k, (y2 - y1) * k
-		local len = math.sqrt(dx * dx + dy * dy)
-		local f = new("Frame", {
-			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromOffset((x1 + x2) * k / 2, (y1 + y2) * k / 2),
-			Size = UDim2.fromOffset(len + th, th), Rotation = math.deg(math.atan2(dy, dx)),
-			BackgroundColor3 = col, BorderSizePixel = 0, Parent = holder,
-		}, {pill()})
-		parts[#parts + 1] = {f, "BackgroundColor3"}
-	end
-	local function box(x, y, w, h, rad)
-		local f = new("Frame", {
-			Position = UDim2.fromOffset(x * k + th / 2, y * k + th / 2),
-			Size = UDim2.fromOffset(math.max(1, w * k - th), math.max(1, h * k - th)),
-			BackgroundTransparency = 1, BorderSizePixel = 0, Parent = holder,
-		}, {new("UICorner", {CornerRadius = UDim.new(0, rad * k)})})
-		local s = new("UIStroke", {Color = col, Thickness = th, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = f})
-		parts[#parts + 1] = {s, "Color"}
-	end
-	local function disc(cx, cy, r)
-		local f = new("Frame", {
-			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromOffset(cx * k, cy * k),
-			Size = UDim2.fromOffset(r * 2 * k, r * 2 * k), BackgroundColor3 = col, BorderSizePixel = 0, Parent = holder,
-		}, {pill()})
-		parts[#parts + 1] = {f, "BackgroundColor3"}
-	end
-
-	for _, p in ipairs(paths) do
-		local t = p[1]
-		if t == "L" then
-			for i = 2, #p - 3, 2 do line(p[i], p[i + 1], p[i + 2], p[i + 3]) end
-		elseif t == "R" then
-			box(p[2], p[3], p[4], p[5], p[6] or 0)
-		elseif t == "C" then
-			box(p[2] - p[4], p[3] - p[4], p[4] * 2, p[4] * 2, p[4])
-		elseif t == "F" then
-			disc(p[2], p[3], p[4])
-		end
-	end
-
-	local api = {}
-	function api.SetColor(c)
-		for _, pr in ipairs(parts) do tw(pr[1], {[pr[2]] = c}, .18) end
-	end
-	function api.Destroy() holder:Destroy() end
-	return api
-end
-
 --------------------------------------------------------------------- ICON LUCIDE (https://lucide.dev)
--- Tên icon đúng như trên lucide.dev: "house", "settings", "swords", "crosshair"...
+-- Tên icon đúng như trên lucide.dev: "house", "settings", "swords", "target", "layers", "flag", "zap"...
 -- Cũng nhận "lucide:tên", asset id (123456 / "rbxassetid://...") hoặc URL ảnh.
 -- Muốn dùng module riêng: getgenv().LucideIcons = <module có .Icon(name, "lucide")>
 local LUCIDE_SOURCES = {
 	"https://raw.githubusercontent.com/Footagesus/Icons/main/Main.lua",
 }
--- tên cũ/mới của cùng một icon (Lucide đổi tên giữa các bản: home -> house, ...)
+-- Chỉ dùng khi KHÔNG tải được Lucide (mất mạng / executor chặn HttpGet): ký tự chữ đơn giản cho các nút của UI
+local GLYPH = {
+	check = "✓", x = "✕", minus = "–", square = "□", copy = "❐", info = "i",
+	["chevron-down"] = "▾", ["chevron-right"] = "›", ["move-diagonal-2"] = "◢",
+}
+-- tên cũ/mới của cùng một icon trong Lucide (home -> house, ...)
 local ALIAS = {
 	house = {"home"}, home = {"house"}, settings = {"cog", "settings-2"}, cog = {"settings"},
 	swords = {"sword"}, target = {"crosshair", "circle-dot"}, layers = {"layers-2", "layers-3"},
 	flag = {"flag-triangle-right"}, ["map-pin"] = {"map-pinned", "pin"}, zap = {"bolt"},
-	["circle-alert"] = {"info"}, x = {"close"},
+	x = {"close"}, ["triangle-alert"] = {"alert-triangle"}, ["trash-2"] = {"trash"},
+	["folder-open"] = {"folder"}, loader = {"loader-2"},
 }
 
 local LucideLib, LucideState, LucideWait, LucideCache = nil, "idle", {}, {}
+local lucideFails = 0
 
 local function lucideInit()
 	if LucideState ~= "idle" then return end
@@ -287,7 +178,7 @@ local function lucideInit()
 		if lib and lib.SetIconsType then pcall(lib.SetIconsType, "lucide") end
 		LucideLib = lib
 		LucideState = lib and "ready" or "failed"
-		if not lib then warn("[RyzenHub] cannot load Lucide icons, using built-in vector icons") end
+		if not lib then warn("[RyzenHub] cannot load Lucide icons, using plain glyph fallback") end
 		for _, cb in ipairs(LucideWait) do task.defer(cb) end
 		LucideWait = {}
 	end)
@@ -299,25 +190,31 @@ local function lucideWhenReady(cb)
 	lucideInit()
 end
 
--- Chấp nhận mọi dạng trả về của module icon, và CHỈ nhận khi có đủ ảnh + ô cắt (tránh hiện cả tấm spritesheet)
+local function toV2(v)
+	if typeof(v) == "Vector2" then return v end
+	if type(v) == "table" then
+		local x, y = v.X or v.x or v[1], v.Y or v.y or v[2]
+		if type(x) == "number" and type(y) == "number" then return Vector2.new(x, y) end
+	end
+	return nil
+end
+
+-- Lấy {Image, Pos, Size} từ kết quả của LucideLib.Icon (nhận nhiều dạng trả về)
 local function parseIcon(a, b)
 	local img, pos, siz
 	if type(a) == "table" then
 		local meta = type(a[2]) == "table" and a[2] or a
 		img = a[1] or a.Image or a.Id
-		pos = meta.ImageRectPosition or meta.ImageRectOffset
-		siz = meta.ImageRectSize
+		pos = toV2(meta.ImageRectPosition or meta.ImageRectOffset)
+		siz = toV2(meta.ImageRectSize)
 	elseif type(a) == "string" and type(b) == "table" then
 		img = a
-		pos = b.ImageRectPosition or b.ImageRectOffset
-		siz = b.ImageRectSize
+		pos = toV2(b.ImageRectPosition or b.ImageRectOffset)
+		siz = toV2(b.ImageRectSize)
 	end
-	if type(img) == "number" then
-		if img < 1000000 then return nil end -- đây là chỉ số sheet chứ không phải asset id
-		img = "rbxassetid://" .. img
-	end
+	if type(img) == "number" then img = "rbxassetid://" .. img end
 	if type(img) ~= "string" or img == "" then return nil end
-	if typeof(pos) ~= "Vector2" or typeof(siz) ~= "Vector2" or siz.X <= 0 or siz.Y <= 0 then return nil end
+	if not (pos and siz) or siz.X <= 0 or siz.Y <= 0 then return nil end -- thiếu ô cắt -> sẽ hiện cả tấm sheet, bỏ
 	return {Image = img, Pos = pos, Size = siz}
 end
 
@@ -327,13 +224,23 @@ local function lucideLookup(name)
 	if c ~= nil then return c or nil end
 	local cands = {name}
 	for _, al in ipairs(ALIAS[name] or {}) do cands[#cands + 1] = al end
-	local data
+	local data, shape
 	for _, cand in ipairs(cands) do
-		local ok, a, b = pcall(function() return LucideLib.Icon(cand, "lucide") end)
-		if ok and a ~= nil then data = parseIcon(a, b) end
+		for _, f in ipairs({
+			function() return LucideLib.Icon(cand, "lucide") end,
+			function() return LucideLib.Icon("lucide:" .. cand) end,
+		}) do
+			local ok, a, b = pcall(f)
+			if ok and a ~= nil then shape = typeof(a); data = parseIcon(a, b) end
+			if data then break end
+		end
 		if data then break end
 	end
 	LucideCache[name] = data or false
+	if not data and lucideFails < 6 then
+		lucideFails = lucideFails + 1
+		warn("[RyzenHub] Lucide icon not found: " .. name .. (shape and (" (module trả về " .. shape .. ")") or ""))
+	end
 	return data
 end
 
@@ -344,49 +251,31 @@ local function Icon(name, parent, size, col)
 	local root = new("Frame", {
 		Name = "Icon_" .. name, Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, BorderSizePixel = 0, Parent = parent,
 	})
-	local cur, img, nat = col, nil, nil
-
-	local function showNative()
-		if img then img:Destroy(); img = nil end
-		if nat then return end
-		nat = drawNative(name, root, size, cur) or drawNative("dot", root, size, cur)
-	end
-	local function showLucide(d)
-		if nat then nat.Destroy(); nat = nil end
-		if not img then
-			img = new("ImageLabel", {
-				Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit,
-				ImageColor3 = cur, Parent = root,
+	local img = new("ImageLabel", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit,
+		ImageColor3 = col, Visible = false, Parent = root,
+	})
+	local glyph, cur = nil, col
+	lucideWhenReady(function()
+		if not root.Parent then return end
+		local d = lucideLookup(name)
+		if d then
+			img.Image = d.Image
+			img.ImageRectOffset = d.Pos
+			img.ImageRectSize = d.Size
+			img.Visible = true
+		elseif GLYPH[name] then
+			glyph = new("TextLabel", {
+				Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = GLYPH[name], TextColor3 = cur,
+				TextSize = math.max(8, size - 2), Font = Enum.Font.GothamBold, Parent = root,
 			})
 		end
-		img.Image = d.Image
-		img.ImageRectOffset = d.Pos
-		img.ImageRectSize = d.Size
-	end
-
-	if CHROME[name] then
-		showNative()
-	else
-		local d = lucideLookup(name) -- chỉ trả về khi Lucide đã tải xong
-		if d then
-			showLucide(d)
-		else
-			showNative() -- hiện bản vẽ sẵn ngay; nếu Lucide còn đang tải và có icon này thì thay vào sau
-			if LucideState == "loading" or LucideState == "idle" then
-				lucideWhenReady(function()
-					if not root.Parent then return end
-					local d2 = lucideLookup(name)
-					if d2 then showLucide(d2) end
-				end)
-			end
-		end
-	end
-
+	end)
 	local api = {Root = root}
 	function api.SetColor(c)
 		cur = c
-		if img then tw(img, {ImageColor3 = c}, .18) end
-		if nat then nat.SetColor(c) end
+		tw(img, {ImageColor3 = c}, .18)
+		if glyph then tw(glyph, {TextColor3 = c}, .18) end
 	end
 	function api.Destroy() root:Destroy() end
 	return api
@@ -1193,19 +1082,24 @@ function UI:CreateWindow(cfg)
 	control(3, "x", true, function() self:SetVisible(false); if self._onClose then fire(self._onClose) end end)
 
 	-- kéo cửa sổ
-	local dragging, dragStart, startPos
+	-- chỉ theo đúng ngón tay/chuột đang kéo thanh tiêu đề (không bị ngón khác như joystick làm lệch), và không cho kéo ra khỏi màn hình
+	local dragging, dragInput, dragStart, startPos
 	bar.InputBegan:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			dragging, dragStart, startPos = true, i.Position, main.Position
+			dragging, dragInput, dragStart, startPos = true, i, i.Position, main.Position
 			i.Changed:Connect(function() if i.UserInputState == Enum.UserInputState.End then dragging = false end end)
 		end
 	end)
 	self:_track(UIS.InputChanged:Connect(function(i)
-		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-			local d = i.Position - dragStart
-			main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-			self._pos = main.Position
-		end
+		if not dragging then return end
+		local same = (i == dragInput) or (dragInput.UserInputType == Enum.UserInputType.MouseButton1 and i.UserInputType == Enum.UserInputType.MouseMovement)
+		if not same then return end
+		local vp = viewport()
+		local d = i.Position - dragStart
+		local cx = math.clamp(vp.X * startPos.X.Scale + startPos.X.Offset + d.X, 60, vp.X - 60)
+		local oy = math.clamp(startPos.Y.Offset + d.Y, 0, vp.Y - 40)
+		main.Position = UDim2.new(startPos.X.Scale, cx - vp.X * startPos.X.Scale, startPos.Y.Scale, oy)
+		self._pos = main.Position
 	end))
 
 	---------------------------------------------------------------- THANH TAB NGANG (cuộn ngang được)
@@ -1610,6 +1504,10 @@ function Window:SetScale(n)
 	self._userScale = math.clamp(tonumber(n) or 1, .5, 1.5)
 	self:_refit()
 end
+function Window:Center() -- đưa cửa sổ về giữa màn hình
+	self._pos = UDim2.new(.5, 0, 0, TOP)
+	tw(self.Main, {Position = self._pos}, .3)
+end
 function Window:OnClose(fn) self._onClose = fn end
 function Window:Destroy() self.Gui:Destroy() end
 
@@ -1744,6 +1642,7 @@ function Window:Select(tab)
 		if t.Icon then t.Icon.SetColor(on and C.White or C.Sub) end
 		if on then
 			if prev ~= tab then
+				t.Page.CanvasPosition = Vector2.new(0, 0) -- luôn bắt đầu từ đầu trang, thấy đủ tiêu đề card
 				t.Page.Position = UDim2.fromOffset(0, 12)
 				t.Page.Visible = true
 				tw(t.Page, {Position = UDim2.fromOffset(0, 0)}, .35)
