@@ -600,6 +600,81 @@ local function drawFallback(name, root, s, col)
 	return parts
 end
 
+-- Vẽ icon dạng "pixel khử răng cưa": tính độ phủ từng ô 0.5px UI (= 1 pixel màn hình 2x), gộp theo hàng thành Frame
+-- không xoay, độ trong suốt theo độ phủ => nét luôn sắc, không méo, không phụ thuộc ảnh bị thu nhỏ.
+local RasterCache = {}
+local RS = 2 -- số ô trên 1 px UI
+local function rasterIcon(key, polys, size)
+	local ck = key .. "@" .. size
+	local c = RasterCache[ck]
+	if c then return c end
+	local G = size * RS
+	local u = G / 24
+	local th = math.max(1.2, 2 * u)
+	local segs = {}
+	for _, pts in ipairs(polys) do
+		for i = 1, #pts - 1 do
+			local a, b = pts[i], pts[i + 1]
+			segs[#segs + 1] = {a[1] * u, a[2] * u, b[1] * u, b[2] * u}
+		end
+	end
+	local reach = th / 2 + 1
+	local LV = 6
+	local runs = {}
+	for py = 0, G - 1 do
+		local cy = py + .5
+		local runStart, runLv
+		for px = 0, G do
+			local lv = 0
+			if px < G then
+				local cx = px + .5
+				local best = math.huge
+				for _, sg in ipairs(segs) do
+					local x1, y1, x2, y2 = sg[1], sg[2], sg[3], sg[4]
+					if cx > math.min(x1, x2) - reach and cx < math.max(x1, x2) + reach
+						and cy > math.min(y1, y2) - reach and cy < math.max(y1, y2) + reach then
+						local dx, dy = x2 - x1, y2 - y1
+						local l2 = dx * dx + dy * dy
+						local t = 0
+						if l2 > 1e-6 then t = math.clamp(((cx - x1) * dx + (cy - y1) * dy) / l2, 0, 1) end
+						local ex, ey = cx - (x1 + dx * t), cy - (y1 + dy * t)
+						local d2 = ex * ex + ey * ey
+						if d2 < best then best = d2 end
+					end
+				end
+				if best < math.huge then
+					local al = math.clamp(th / 2 + .5 - math.sqrt(best), 0, 1)
+					lv = math.floor(al * LV + .5)
+				end
+			end
+			if lv ~= runLv then
+				if runLv and runLv > 0 then runs[#runs + 1] = {runStart, py, px - runStart, runLv / LV} end
+				runStart, runLv = px, lv
+			end
+		end
+	end
+	RasterCache[ck] = runs
+	return runs
+end
+
+local function drawCrisp(name, polys, parent, size, col)
+	local root = new("Frame", {
+		Name = "Icon_" .. name, Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, BorderSizePixel = 0,
+		ClipsDescendants = false, Parent = parent,
+	})
+	local parts = {}
+	for _, r in ipairs(rasterIcon(name, polys, size)) do
+		parts[#parts + 1] = new("Frame", {
+			Position = UDim2.fromOffset(r[1] / RS, r[2] / RS), Size = UDim2.fromOffset(r[3] / RS, 1 / RS),
+			BackgroundColor3 = col, BackgroundTransparency = 1 - r[4], BorderSizePixel = 0, Parent = root,
+		})
+	end
+	local api = {Root = root}
+	function api.SetColor(c) for _, f in ipairs(parts) do f.BackgroundColor3 = c end end
+	function api.Destroy() root:Destroy() end
+	return api
+end
+
 -- Icon(name, parent, size, color) -> {Root = Frame, SetColor = fn, Destroy = fn}
 -- Ưu tiên ảnh Lucide (spritesheet, ImageLabel => nét, không răng cưa, không méo).
 -- Chỉ khi không tải được / không có icon mới vẽ bằng Frame (Ryzen Icons / fallback).
@@ -607,6 +682,8 @@ local function Icon(name, parent, size, col)
 	col = col or C.Text
 	name = (tostring(name):gsub("^lucide:", ""))
 	size = math.max(1, math.floor(size + .5)) -- kích thước nguyên => không bị mờ do nội suy nửa pixel
+	local crisp = getPolys(name)
+	if crisp then return drawCrisp(name, crisp, parent, size, col) end
 	local root = new("Frame", {
 		Name = "Icon_" .. name, Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, BorderSizePixel = 0, Parent = parent,
 	})
