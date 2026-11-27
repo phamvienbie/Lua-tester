@@ -603,7 +603,9 @@ end
 -- Vẽ icon dạng "pixel khử răng cưa": tính độ phủ từng ô 0.5px UI (= 1 pixel màn hình 2x), gộp theo hàng thành Frame
 -- không xoay, độ trong suốt theo độ phủ => nét luôn sắc, không méo, không phụ thuộc ảnh bị thu nhỏ.
 local RasterCache = {}
-local RS = 2 -- số ô trên 1 px UI
+-- Số ô trên 1 px UI. Frame nhỏ hơn 1px UI không hiện trên một số máy (bị làm tròn về 0) => mặc định 1 ô = 1px UI (luôn hiện).
+-- Muốn thử nét mịn hơn: getgenv().RyzenIconRes = 2 (đặt trước khi chạy file này)
+local RS = math.clamp(math.floor(tonumber((getgenv and getgenv().RyzenIconRes) or 1) or 1), 1, 3)
 local function rasterIcon(key, polys, size)
 	local ck = key .. "@" .. size
 	local c = RasterCache[ck]
