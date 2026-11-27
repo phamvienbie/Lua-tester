@@ -439,9 +439,11 @@ local function getPolys(name)
 	return polys
 end
 
+local function snap(v) return math.floor(v * 2 + .5) / 2 end -- làm tròn theo nửa pixel UI (khớp 1 pixel màn hình 2x)
+
 local function drawCustom(name, polys, parent, size, col)
 	local u = size / 24
-	local th = math.max(1.4, 2 * u)
+	local th = math.max(1.5, snap(2 * u))
 	local root = new("Frame", {
 		Name = "Icon_" .. name, Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, BorderSizePixel = 0, Parent = parent,
 	})
@@ -449,13 +451,31 @@ local function drawCustom(name, polys, parent, size, col)
 	for _, pts in ipairs(polys) do
 		for i = 1, #pts - 1 do
 			local a, b = pts[i], pts[i + 1]
-			local dx, dy = (b[1] - a[1]) * u, (b[2] - a[2]) * u
+			local ax, ay, bx, by = a[1] * u, a[2] * u, b[1] * u, b[2] * u
+			local dx, dy = bx - ax, by - ay
 			local len = math.sqrt(dx * dx + dy * dy)
-			parts[#parts + 1] = new("Frame", {
-				AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromOffset((a[1] + b[1]) / 2 * u, (a[2] + b[2]) / 2 * u),
-				Size = UDim2.fromOffset(len + th, th), Rotation = math.deg(math.atan2(dy, dx)),
-				BackgroundColor3 = col, BorderSizePixel = 0, Parent = root,
-			}, {pill()})
+			local f
+			if math.abs(dy) < 1e-3 or math.abs(dx) < 1e-3 then
+				-- đoạn ngang/dọc: không xoay + snap pixel => nét sắc
+				local x0, y0 = math.min(ax, bx), math.min(ay, by)
+				local w, h
+				if math.abs(dy) < 1e-3 then
+					x0 = snap(x0 - th / 2); y0 = snap(ay - th / 2); w = snap(len + th); h = th
+				else
+					x0 = snap(ax - th / 2); y0 = snap(y0 - th / 2); w = th; h = snap(len + th)
+				end
+				f = new("Frame", {
+					Position = UDim2.fromOffset(x0, y0), Size = UDim2.fromOffset(math.max(w, th), math.max(h, th)),
+					BackgroundColor3 = col, BorderSizePixel = 0, Parent = root,
+				}, {corner(th * .4)})
+			else
+				f = new("Frame", {
+					AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromOffset((ax + bx) / 2, (ay + by) / 2),
+					Size = UDim2.fromOffset(len + th * .9, th), Rotation = math.deg(math.atan2(dy, dx)),
+					BackgroundColor3 = col, BorderSizePixel = 0, Parent = root,
+				}, {pill()})
+			end
+			parts[#parts + 1] = f
 		end
 	end
 	local api = {Root = root}
@@ -781,7 +801,7 @@ function Elements:Toggle(o)
 	local track, knob, mark, markScale
 	if checkbox then
 		track = new("Frame", {
-			AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, 0, .5, 0), Size = UDim2.fromOffset(22, 22),
+			AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, 5, .5, 0), Size = UDim2.fromOffset(22, 22),
 			BackgroundColor3 = C.Off, BorderSizePixel = 0, Parent = row,
 		}, {corner(6)})
 		mark = Icon("check", track, 14, C.White)
@@ -790,7 +810,7 @@ function Elements:Toggle(o)
 		markScale = new("UIScale", {Scale = 1, Parent = mark.Root})
 	else
 		track = new("Frame", {
-			AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, 0, .5, 0), Size = UDim2.fromOffset(32, 18),
+			AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, 5, .5, 0), Size = UDim2.fromOffset(32, 18),
 			BackgroundColor3 = C.Off, BorderSizePixel = 0, Parent = row,
 		}, {pill()})
 		knob = new("Frame", {
@@ -842,7 +862,7 @@ function Elements:Button(o)
 	local row = r.Row
 	local sc = new("UIScale", {Parent = row})
 	local ic = Icon(o.Icon or "chevron-right", row, 14, C.Sub)
-	ic.Root.AnchorPoint = Vector2.new(1, .5); ic.Root.Position = UDim2.new(1, 0, .5, 0)
+	ic.Root.AnchorPoint = Vector2.new(1, .5); ic.Root.Position = UDim2.new(1, 5, .5, 0)
 	local api = {}
 	function api:Click() fire(o.Callback) end
 	row.MouseButton1Click:Connect(function() if not api.Locked then fire(o.Callback) end end)
@@ -1136,7 +1156,7 @@ function Elements:Keybind(o)
 	local r = makeRow(self, o, 70, false, true)
 	local row = r.Row
 	local chip = new("TextLabel", {
-		AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, 0, .5, 0), Size = UDim2.fromOffset(0, 22),
+		AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, 5, .5, 0), Size = UDim2.fromOffset(0, 22),
 		AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = C.Field, BorderSizePixel = 0,
 		Text = key and keyName(key) or "None", TextColor3 = C.Sub, TextSize = 10, FontFace = F.Semi, Parent = row,
 	}, {corner(6), padding(0, 9, 0, 9)})
@@ -1386,14 +1406,14 @@ function UI:CreateWindow(cfg)
 	local function control(order, iconName, isClose, onClick)
 		local b = new("TextButton", {
 			AnchorPoint = Vector2.new(1, .5), Size = UDim2.fromOffset(26, 26),
-			Position = UDim2.new(1, -(10 + 30 * (3 - order)), .5, 0),
+			Position = UDim2.new(1, -(4 + 30 * (3 - order)), .5, 0),
 			BackgroundColor3 = C.White, BackgroundTransparency = 1, AutoButtonColor = false, Text = "", ZIndex = 5, Parent = bar,
 		}, {corner(6)})
 		local ico
 		local ctl = {}
 		local function mk(n)
 			if ico then ico.Destroy() end
-			ico = Icon(n, b, 13, C.Text)
+			ico = Icon(n, b, 14, C.Text)
 			ico.Root.AnchorPoint = Vector2.new(.5, .5); ico.Root.Position = UDim2.fromScale(.5, .5); ico.Root.ZIndex = 6
 		end
 		mk(iconName)
@@ -1826,7 +1846,7 @@ end
 function Window:SetIcon(spec) -- tên Lucide hoặc id / rbxassetid / URL
 	if self._logoIcon then self._logoIcon.Destroy(); self._logoIcon = nil end
 	if not spec or spec == "" then return end
-	local ic = AnyIcon(spec, self._logo, 15, C.White)
+	local ic = AnyIcon(spec, self._logo, 17, C.White)
 	ic.Root.AnchorPoint = Vector2.new(.5, .5); ic.Root.Position = UDim2.fromScale(.5, .5); ic.Root.ZIndex = 5
 	self._logoIcon = ic
 end
@@ -1902,7 +1922,7 @@ function Window:_newTab(parent, cfg)
 	new("UIPadding", {PaddingLeft = UDim.new(0, 11), PaddingRight = UDim.new(0, 12), Parent = btn})
 	local ic
 	if cfg.Icon and cfg.Icon ~= "" then
-		ic = AnyIcon(cfg.Icon, btn, 14, C.Sub); ic.Root.LayoutOrder = 1
+		ic = AnyIcon(cfg.Icon, btn, 16, C.Sub); ic.Root.LayoutOrder = 1
 	end
 	local txt = label(name, 10.5, C.Sub, F.Semi)
 	txt.AutomaticSize = Enum.AutomaticSize.X; txt.Size = UDim2.new(0, 0, 1, 0); txt.TextTruncate = Enum.TextTruncate.None
@@ -2004,7 +2024,7 @@ function TabC:SetTitle(n) self.Name = tostring(n); self.Text.Text = tostring(n) 
 function TabC:SetIcon(spec)
 	if self.Icon then self.Icon.Destroy(); self.Icon = nil end
 	if spec and spec ~= "" then
-		self.Icon = AnyIcon(spec, self.Button, 14, self.Window.Current == self and C.White or C.Sub)
+		self.Icon = AnyIcon(spec, self.Button, 16, self.Window.Current == self and C.White or C.Sub)
 		self.Icon.Root.LayoutOrder = 1
 	end
 end
