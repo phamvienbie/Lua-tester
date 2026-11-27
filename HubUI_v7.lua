@@ -145,12 +145,19 @@ end
 -- Muốn dùng module riêng: getgenv().LucideIcons = <module có .Icon(name, "lucide")>
 local LUCIDE_SOURCES = {
 	"https://raw.githubusercontent.com/Footagesus/Icons/main/Main.lua",
+	"https://cdn.jsdelivr.net/gh/Footagesus/Icons@main/Main.lua",
 }
--- Chỉ dùng khi KHÔNG tải được Lucide (mất mạng / executor chặn HttpGet): ký tự chữ đơn giản cho các nút của UI
-local GLYPH = {
-	check = "✓", x = "✕", minus = "–", square = "□", copy = "❐", info = "i",
-	["chevron-down"] = "▾", ["chevron-right"] = "›", ["move-diagonal-2"] = "◢",
-}
+-- Tải text: thử game:HttpGet, lỗi thì thử request()/http_request() (một số executor mobile chỉ chạy được cái này)
+local function fetchText(url)
+	local ok, res = pcall(function() return game:HttpGet(url) end)
+	if ok and type(res) == "string" and #res > 0 then return res end
+	local req = request or http_request or (syn and syn.request) or (http and http.request)
+	if req then
+		local ok2, r = pcall(req, {Url = url, Method = "GET"})
+		if ok2 and type(r) == "table" and type(r.Body) == "string" and #r.Body > 0 then return r.Body end
+	end
+	return nil
+end
 -- tên cũ/mới của cùng một icon trong Lucide (home -> house, ...)
 local ALIAS = {
 	house = {"home"}, home = {"house"}, settings = {"cog", "settings-2"}, cog = {"settings"},
@@ -169,16 +176,30 @@ local function lucideInit()
 	task.spawn(function()
 		local env = (getgenv and getgenv()) or _G
 		local lib = type(env.LucideIcons) == "table" and env.LucideIcons or nil
-		if not lib then
+		local lastErr
+		for attempt = 1, 3 do
+			if lib then break end
 			for _, url in ipairs(LUCIDE_SOURCES) do
-				local ok, res = pcall(function() return loadstring(game:HttpGet(url))() end)
-				if ok and type(res) == "table" and res.Icon then lib = res break end
+				local src = fetchText(url)
+				if src then
+					local fn, cerr = loadstring(src)
+					if fn then
+						local ok, res = pcall(fn)
+						if ok and type(res) == "table" and res.Icon then lib = res break end
+						lastErr = ok and "module không có hàm Icon" or tostring(res)
+					else
+						lastErr = tostring(cerr)
+					end
+				else
+					lastErr = "không tải được " .. url
+				end
 			end
+			if not lib and attempt < 3 then task.wait(.6) end
 		end
 		if lib and lib.SetIconsType then pcall(lib.SetIconsType, "lucide") end
 		LucideLib = lib
 		LucideState = lib and "ready" or "failed"
-		if not lib then warn("[RyzenHub] cannot load Lucide icons, using plain glyph fallback") end
+		if not lib then warn("[RyzenHub] cannot load Lucide icons (" .. tostring(lastErr) .. "), dùng icon vẽ sẵn") end
 		for _, cb in ipairs(LucideWait) do task.defer(cb) end
 		LucideWait = {}
 	end)
@@ -244,6 +265,115 @@ local function lucideLookup(name)
 	return data
 end
 
+-- Icon vẽ bằng Frame (không phụ thuộc font/mạng) — dùng khi Lucide không tải được
+local function drawFallback(name, root, s, col)
+	local parts = {}
+	local th = math.max(1.5, s * .13)
+	local function bar(cx, cy, len, rot)
+		local f = new("Frame", {
+			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromOffset(cx, cy), Size = UDim2.fromOffset(len, th),
+			Rotation = rot, BackgroundColor3 = col, BorderSizePixel = 0, Parent = root,
+		}, {corner(2)})
+		parts[#parts + 1] = {f, "BackgroundColor3"}
+	end
+	local function box(x, y, w, h, r)
+		local f = new("Frame", {
+			Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(w, h), BackgroundTransparency = 1, BorderSizePixel = 0, Parent = root,
+		}, {corner(r or 2)})
+		local st = new("UIStroke", {Thickness = math.max(1.2, s * .1), Color = col, Parent = f})
+		parts[#parts + 1] = {st, "Color"}
+	end
+	local w = .22 * s
+	local L = w * 1.414 * 1.15
+	if name == "check" then
+		bar(.31 * s, .62 * s, .33 * s, 42)
+		bar(.62 * s, .51 * s, .64 * s, -46)
+	elseif name == "x" then
+		bar(.5 * s, .5 * s, .85 * s, 45); bar(.5 * s, .5 * s, .85 * s, -45)
+	elseif name == "minus" then
+		bar(.5 * s, .5 * s, .7 * s, 0)
+	elseif name == "square" then
+		box(.18 * s, .18 * s, .64 * s, .64 * s)
+	elseif name == "copy" then
+		box(.14 * s, .14 * s, .5 * s, .5 * s); box(.36 * s, .36 * s, .5 * s, .5 * s)
+	elseif name == "chevron-down" then
+		bar(.5 * s - w / 2, .5 * s, L, 45); bar(.5 * s + w / 2, .5 * s, L, -45)
+	elseif name == "chevron-up" then
+		bar(.5 * s - w / 2, .5 * s, L, -45); bar(.5 * s + w / 2, .5 * s, L, 45)
+	elseif name == "chevron-right" then
+		bar(.5 * s, .5 * s - w / 2, L, 45); bar(.5 * s, .5 * s + w / 2, L, -45)
+	elseif name == "move-diagonal-2" then
+		bar(.78 * s, .78 * s, .28 * s, -45); bar(.55 * s, .55 * s, .6 * s, -45)
+	elseif name == "house" or name == "home" then
+		bar(.32 * s, .36 * s, .5 * s, -40); bar(.68 * s, .36 * s, .5 * s, 40)
+		box(.24 * s, .46 * s, .52 * s, .42 * s)
+	elseif name == "settings" or name == "cog" then
+		bar(.5 * s, .5 * s, .96 * s, 0); bar(.5 * s, .5 * s, .96 * s, 90)
+		bar(.5 * s, .5 * s, .9 * s, 45); bar(.5 * s, .5 * s, .9 * s, -45)
+		local g = new("Frame", {
+			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(s * .6, s * .6),
+			BackgroundColor3 = C.Bg2, BorderSizePixel = 0, Parent = root,
+		}, {corner(99)})
+		local gs = new("UIStroke", {Thickness = math.max(1.2, s * .1), Color = col, Parent = g})
+		parts[#parts + 1] = {gs, "Color"}
+	elseif name == "swords" or name == "sword" then
+		bar(.5 * s, .5 * s, .95 * s, 45); bar(.5 * s, .5 * s, .95 * s, -45)
+		bar(.3 * s, .7 * s, .3 * s, 45); bar(.7 * s, .7 * s, .3 * s, -45)
+	elseif name == "target" or name == "crosshair" then
+		box(.1 * s, .1 * s, .8 * s, .8 * s, 99)
+		if name == "target" then
+			box(.3 * s, .3 * s, .4 * s, .4 * s, 99)
+		else
+			bar(.5 * s, .5 * s, 1 * s, 0); bar(.5 * s, .5 * s, 1 * s, 90)
+		end
+		local d = new("Frame", {
+			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(s * .16, s * .16),
+			BackgroundColor3 = col, BorderSizePixel = 0, Parent = root,
+		}, {corner(99)})
+		parts[#parts + 1] = {d, "BackgroundColor3"}
+	elseif name == "layers" then
+		bar(.32 * s, .28 * s, L, -45); bar(.68 * s, .28 * s, L, 45)
+		bar(.32 * s, .28 * s, L, 45); bar(.68 * s, .28 * s, L, -45)
+		bar(.5 * s - w / 2, .55 * s, L, 45); bar(.5 * s + w / 2, .55 * s, L, -45)
+		bar(.5 * s - w / 2, .78 * s, L, 45); bar(.5 * s + w / 2, .78 * s, L, -45)
+	elseif name == "flag" then
+		bar(.22 * s, .5 * s, .8 * s, 90)
+		box(.26 * s, .12 * s, .56 * s, .38 * s, 1)
+	elseif name == "zap" then
+		bar(.46 * s, .325 * s, .55 * s, -54); bar(.54 * s, .675 * s, .55 * s, -54)
+		bar(.5 * s, .5 * s, .4 * s, 0)
+	elseif name == "eye" then
+		box(.04 * s, .24 * s, .92 * s, .52 * s, 99)
+		local d = new("Frame", {
+			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(s * .22, s * .22),
+			BackgroundColor3 = col, BorderSizePixel = 0, Parent = root,
+		}, {corner(99)})
+		parts[#parts + 1] = {d, "BackgroundColor3"}
+	elseif name == "bell" then
+		box(.22 * s, .12 * s, .56 * s, .56 * s, 99)
+		bar(.5 * s, .72 * s, .76 * s, 0)
+		local d = new("Frame", {
+			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .88), Size = UDim2.fromOffset(s * .2, s * .2),
+			BackgroundColor3 = col, BorderSizePixel = 0, Parent = root,
+		}, {corner(99)})
+		parts[#parts + 1] = {d, "BackgroundColor3"}
+	elseif name == "info" then
+		box(.08 * s, .08 * s, .84 * s, .84 * s, 99)
+		local t = new("TextLabel", {
+			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "i", TextColor3 = col,
+			TextSize = math.max(8, s * .6), Font = Enum.Font.GothamBold, Parent = root,
+		})
+		parts[#parts + 1] = {t, "TextColor3"}
+	else -- icon chưa có: chấm tròn nhỏ để bố cục không bị lệch
+		local d = new("Frame", {
+			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(s * .32, s * .32),
+			BackgroundColor3 = col, BorderSizePixel = 0, Parent = root,
+		}, {corner(99)})
+		parts[#parts + 1] = {d, "BackgroundColor3"}
+	end
+	return parts
+end
+
 -- Icon(name, parent, size, color) -> {Root = Frame, SetColor = fn, Destroy = fn}
 local function Icon(name, parent, size, col)
 	col = col or C.Text
@@ -255,7 +385,7 @@ local function Icon(name, parent, size, col)
 		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit,
 		ImageColor3 = col, Visible = false, Parent = root,
 	})
-	local glyph, cur = nil, col
+	local parts, cur = nil, col
 	lucideWhenReady(function()
 		if not root.Parent then return end
 		local d = lucideLookup(name)
@@ -264,18 +394,15 @@ local function Icon(name, parent, size, col)
 			img.ImageRectOffset = d.Pos
 			img.ImageRectSize = d.Size
 			img.Visible = true
-		elseif GLYPH[name] then
-			glyph = new("TextLabel", {
-				Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = GLYPH[name], TextColor3 = cur,
-				TextSize = math.max(8, size - 2), Font = Enum.Font.GothamBold, Parent = root,
-			})
+		else
+			parts = drawFallback(name, root, size, cur)
 		end
 	end)
 	local api = {Root = root}
 	function api.SetColor(c)
 		cur = c
 		tw(img, {ImageColor3 = c}, .18)
-		if glyph then tw(glyph, {TextColor3 = c}, .18) end
+		if parts then for _, pr in ipairs(parts) do tw(pr[1], {[pr[2]] = c}, .18) end end
 	end
 	function api.Destroy() root:Destroy() end
 	return api
