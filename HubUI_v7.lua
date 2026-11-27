@@ -262,6 +262,8 @@ local function lucideLookup(name)
 	local data, shape
 	for _, cand in ipairs(cands) do
 		for _, f in ipairs({
+			function() return LucideLib.GetIcon(cand, "lucide") end,
+			function() return LucideLib.GetIcon(cand) end,
 			function() return LucideLib.Icon(cand, "lucide") end,
 			function() return LucideLib.Icon("lucide:" .. cand) end,
 			function() return LucideLib.Icon(cand) end,
@@ -273,7 +275,7 @@ local function lucideLookup(name)
 		}) do
 			local ok, a, b = pcall(f)
 			if not ok then
-				shape = "error: " .. tostring(a)
+				if not shape or #shape < 160 then shape = (shape and (shape .. " || ") or "") .. "error: " .. tostring(a) end
 			elseif a ~= nil then
 				shape = typeof(a) .. " " .. dumpShape(a, 0) .. (b ~= nil and (" | " .. dumpShape(b, 0)) or "")
 				data = parseIcon(a, b)
