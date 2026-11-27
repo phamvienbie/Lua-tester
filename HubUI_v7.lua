@@ -252,6 +252,7 @@ local function dumpShape(v, depth)
 	return "{" .. table.concat(out, ", ") .. "}"
 end
 
+local lucideDumped = false
 local function lucideLookup(name)
 	if LucideState ~= "ready" then return nil end
 	local c = LucideCache[name]
@@ -263,9 +264,17 @@ local function lucideLookup(name)
 		for _, f in ipairs({
 			function() return LucideLib.Icon(cand, "lucide") end,
 			function() return LucideLib.Icon("lucide:" .. cand) end,
+			function() return LucideLib.Icon(cand) end,
+			function() -- tra thẳng trong bảng dữ liệu của module
+				local t = LucideLib.Icons
+				if type(t) ~= "table" then return nil end
+				return (type(t.lucide) == "table" and t.lucide[cand]) or t[cand]
+			end,
 		}) do
 			local ok, a, b = pcall(f)
-			if ok and a ~= nil then
+			if not ok then
+				shape = "error: " .. tostring(a)
+			elseif a ~= nil then
 				shape = typeof(a) .. " " .. dumpShape(a, 0) .. (b ~= nil and (" | " .. dumpShape(b, 0)) or "")
 				data = parseIcon(a, b)
 			end
@@ -276,7 +285,13 @@ local function lucideLookup(name)
 	LucideCache[name] = data or false
 	if not data and lucideFails < 3 then
 		lucideFails = lucideFails + 1
-		warn("[RyzenHub] Lucide icon not found: " .. name .. (shape and (" (module trả về " .. shape .. ")") or ""))
+		warn("[RyzenHub] Lucide icon not found: " .. name .. " -> " .. tostring(shape or "module trả về nil"))
+		if not lucideDumped then
+			lucideDumped = true
+			local keys = {}
+			for k, v in pairs(LucideLib) do keys[#keys + 1] = tostring(k) .. ":" .. typeof(v) end
+			warn("[RyzenHub] Lucide module keys: " .. table.concat(keys, ", "))
+		end
 	end
 	return data
 end
