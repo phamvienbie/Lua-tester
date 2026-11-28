@@ -777,16 +777,14 @@ local function hoverRow(r, extra)
 	end)
 end
 
-local function spawnRipple(parent)
-	if not parent or not parent.Parent then return end
-	local sz = math.max(parent.AbsoluteSize.X, parent.AbsoluteSize.Y) * 1.4
-	local rip = new("Frame", {
-		AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
-		Size = UDim2.fromOffset(8, 8), BackgroundColor3 = C.White, BackgroundTransparency = .84,
-		BorderSizePixel = 0, ZIndex = parent.ZIndex + 1, Parent = parent,
-	}, {pill()})
-	local t = tw(rip, {Size = UDim2.fromOffset(sz, sz), BackgroundTransparency = 1}, .38, Enum.EasingStyle.Quad)
-	t.Completed:Connect(function() if rip.Parent then rip:Destroy() end end)
+local function clickFlash(row, st)
+	if not row or not row.Parent then return end
+	row.BackgroundColor3 = RGB(56, 56, 56)
+	tw(row, {BackgroundColor3 = C.Item}, .2)
+	if st then
+		st.Color = C.Checked
+		tw(st, {Color = C.Stroke}, .22)
+	end
 end
 
 --------------------------------------------------------------------- TOGGLE
@@ -867,12 +865,11 @@ function Elements:Button(o)
 	ic.Root.AnchorPoint = Vector2.new(1, .5); ic.Root.Position = UDim2.new(1, 5, .5, 0)
 	local api = {}
 	function api:Click() fire(o.Callback) end
-	row.ClipsDescendants = true
-	row.MouseButton1Click:Connect(function() if not api.Locked then spawnRipple(row); fire(o.Callback) end end)
+	row.MouseButton1Click:Connect(function() if not api.Locked then clickFlash(row, r.Stroke); fire(o.Callback) end end)
 	row.MouseEnter:Connect(function() ic.SetColor(C.White) end)
-	row.MouseLeave:Connect(function() ic.SetColor(C.Sub); tw(sc, {Scale = 1}, .2) end)
-	row.MouseButton1Down:Connect(function() tw(sc, {Scale = .98}, .08) end)
-	row.MouseButton1Up:Connect(function() tw(sc, {Scale = 1}, .25, Enum.EasingStyle.Back) end)
+	row.MouseLeave:Connect(function() ic.SetColor(C.Sub); tw(sc, {Scale = 1}, .14) end)
+	row.MouseButton1Down:Connect(function() tw(sc, {Scale = .97}, .06) end)
+	row.MouseButton1Up:Connect(function() tw(sc, {Scale = 1}, .16, Enum.EasingStyle.Back) end)
 	hoverRow(r)
 	return finish(self, o, r, api)
 end
