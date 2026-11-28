@@ -512,7 +512,9 @@ local function b64dec(data)
 			bits = bits + 6
 			if bits >= 8 then
 				bits = bits - 8
-				local byte = math.floor(buf / (2 ^ bits)) % 256
+				local p = 2 ^ bits
+				local byte = math.floor(buf / p)
+				buf = buf - byte * p
 				out[#out + 1] = string.char(byte)
 			end
 		end
@@ -562,7 +564,7 @@ local function getIconSheet()
 	local getAsset = getcustomasset or getsynasset
 	if not (getAsset and writefile) then return nil end
 	local ok, res = pcall(function()
-		local file = "ryzenhub_icons_56_v1.png"
+		local file = "ryzenhub_icons_56_v2.png"
 		local raw = b64dec(ICON_SHEET_B64)
 		writefile(file, raw)
 		return getAsset(file)
