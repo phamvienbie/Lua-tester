@@ -4,7 +4,7 @@
     ║     UI: Ryzen Hub v7                              ║
     ║     Features: Quest, Boss, Combo, Bring Mob       ║
     ║     + ReAttack (Fixed Background M1, No Lag)      ║
-    ║     ⚠ Use at your own risk - may cause ban        ║
+    ║     [!] Use at your own risk - may cause ban      ║
     ╚═══════════════════════════════════════════════════╝
 --]]
 
@@ -75,8 +75,13 @@ local Settings = {
     SwapInterval = 0.22,
     EquipSettle = 0.06,
     M1Rate = 0.05,
-    M1Method = "Activate",      -- "Activate" | "Remote" | "Both"
+    M1Method = "Both",          -- "Activate" | "Remote" | "Both"
     BurstSkills = true,         -- Burst Z X C V B skills during ReAttack
+
+    -- Farm Positioning, Aimbot & Nearest
+    FarmPosition = "Above",     -- "Above" | "Beside" | "Lower"
+    AutoFarmNearest = false,
+    SkillAimbot = true,
 
     -- Teleport
     InstantTP = true,           -- 1-shot instant TP bypass
@@ -112,11 +117,78 @@ local Settings = {
     SafeEscapePvP = false,
     SafeEscapeHP = 20,
 
+    -- Dungeon
+    DungeonMode = "Normal",
+    DungeonDifficulty = "Normal",
+    DungeonPlayMode = "Hover Above (Tween)", -- "Hover Above (Tween)" | "Behind Target" | "Safe Evasion"
+    DungeonTweenSpeed = 280,
+    DungeonHoverHeight = 14,
+    DungeonSafeHoverHeight = 65,
+    DungeonLowHPThreshold = 0.25,
+    DungeonRecoveryHPThreshold = 0.55,
+    DungeonCombatRange = 35,
+    DungeonHitboxSize = 30,
+    DungeonM1Delay = 0.13,
+    DungeonWeaponSwapDelay = 0.3,
+    DungeonEquipSettleDelay = 0.06,
+    DungeonWeapons = {},
+    DungeonPartner = "",
+    DungeonPartnerMode = false,
+    DungeonFriends = {},
+    DungeonAutoFriends = true,
+    DungeonStatus = "Idle",
+
     -- Misc
     AntiAFK = true,
     FastAttack = false,
     AutoHaki = true,            -- Auto Armament Haki enabled by default
     HakiKey = "G",              -- Armament Haki hotkey (G / J / T / H)
+
+    -- Accessories & Passive
+    SelectedAccessory = "",
+    AutoEquipAccessory = false,
+    AutoPassiveTree = false,
+
+    -- FPS Boost / Anti-Lag
+    WhiteScreen = false,
+    HideLevelUpUI = false,
+    HideMobHealth = false,
+    DeleteDamageText = false,
+    DeleteHeavyEffects = false,
+
+    -- Unlocks / Quests / Events
+    AutoSea2Unlock = false,
+    AutoSea3Unlock = false,
+    AutoHakiV2 = false,
+    AutoObserveV2 = false,
+    AutoKillMinion = false,
+    AutoFarmCandy = false,
+    AutoKillJackO = false,
+    AutoSummonJackO = false,
+    AutoKillSkullKing = false,
+
+    -- Third Sea Events
+    AutoAbyssalTyrant = false,
+    AutoChaosKraken = false,
+    AutoDeepseaCrusher = false,
+    AutoDrakenfyr = false,
+
+    -- ESP
+    ESPPlayer = false,
+    ESPFruit = false,
+    ESPLegacyIsland = false,
+    ESPHydraIsland = false,
+    ESPGhostShip = false,
+
+    -- Fruit / Key / Movement Extras
+    BringAllFruits = false,
+    AutoStoreFruit = false,
+    InfGeppo = false,
+    SelectedKey = "Copper Key",
+    AutoBuyKey = false,
+    AutoOpenKey = false,
+    SelectedStockFruit = "DragonFruit",
+    AutoBuyStockFruit = false,
 
     -- Player
     WalkSpeed = 16,
@@ -159,7 +231,45 @@ local _sea2EventActive = false
 local _materialFarmActive = false
 local _scriptStartTime = tick()
 
-local ActivateHaki
+local ActivateHaki, IsHakiActive
+local _hakiState = {
+    remotes = nil,
+    activating = false,
+    activatedChar = nil,
+    activatedTime = 0,
+    detectSupported = false,
+    baselineChar = nil,
+    limbColors = {},
+    limbMaterials = {},
+    visibleObjs = {},
+    hoverActive = false,
+    hoverPos = nil,
+    hoverLook = nil,
+    hoverRoot = nil,
+    hoverConn = nil,
+    lastCombatTick = 0,
+    lastSimTick = 0,
+    lastFarmPos = nil,
+    lastFarmMobName = nil,
+    lastBossPos = nil,
+    lastMatPos = nil,
+    lastOrbPos = nil,
+    mobLevelCache = setmetatable({}, {__mode = "k"}),
+    lastAttemptTime = 0,
+    lastAttemptChar = nil,
+    lastKenTick = 0,
+    m1RemoteBusy = false,
+    m1RemoteBusySince = 0,
+    skillActionRemote = nil,
+    getOfficialQuest = nil,
+    skillAimbotHooked = false,
+    origEffects = nil,
+    friendCache = {},
+    getDungeonFriendList = nil,
+    parseDungeonFriends = nil,
+    getDungeonFriendSummary = nil,
+    dungeonOnRespawn = nil,
+}
 
 -- Update Character on respawn
 Player.CharacterAdded:Connect(function(char)
@@ -168,6 +278,19 @@ Player.CharacterAdded:Connect(function(char)
     HumanoidRootPart = char:WaitForChild("HumanoidRootPart")
     _hoverBV = nil
     _hoverBG = nil
+    _hakiLastCheck = tick()
+    if _hakiState.dungeonOnRespawn then
+        pcall(_hakiState.dungeonOnRespawn)
+    end
+    if Settings.WalkSpeed and Settings.WalkSpeed ~= 16 then
+        pcall(function() Humanoid.WalkSpeed = Settings.WalkSpeed end)
+    end
+    if Settings.JumpPower and Settings.JumpPower ~= 50 then
+        pcall(function()
+            Humanoid.UseJumpPower = true
+            Humanoid.JumpPower = Settings.JumpPower
+        end)
+    end
     task.wait(1.5)
     if Settings.AutoHaki and ActivateHaki then
         pcall(ActivateHaki)
@@ -284,17 +407,48 @@ end
 -- UTILITY FUNCTIONS
 -- =====================================================
 local function GetLevel()
-    local stats = Player:FindFirstChild("Data") or Player:FindFirstChild("leaderstats") or Player:FindFirstChild("Stats")
-    if stats then
-        local level = stats:FindFirstChild("Level") or stats:FindFirstChild("Lv") or stats:FindFirstChild("LV")
-        if level then return level.Value end
-    end
-    for _, child in pairs(Player:GetDescendants()) do
-        if child.Name == "Level" and (child:IsA("IntValue") or child:IsA("NumberValue")) then
-            return child.Value
+    local containers = {
+        Player:FindFirstChild("PlayerStats"),
+        Player:FindFirstChild("Data"),
+        Player:FindFirstChild("leaderstats"),
+        Player:FindFirstChild("Stats"),
+    }
+    for _, stats in ipairs(containers) do
+        if stats then
+            for _, child in ipairs(stats:GetChildren()) do
+                local lname = child.Name:lower()
+                if lname == "level" or lname == "lvl" or lname == "lv" then
+                    if child:IsA("IntValue") or child:IsA("NumberValue") then
+                        if child.Value > 0 then return child.Value end
+                    elseif child:IsA("StringValue") then
+                        local n = tonumber(child.Value)
+                        if n and n > 0 then return n end
+                    end
+                end
+            end
         end
     end
-    return 0
+
+    local attr = Player:GetAttribute("Level") or Player:GetAttribute("lvl") or Player:GetAttribute("Lvl")
+    if type(attr) == "number" and attr > 0 then
+        return attr
+    end
+
+    local playerGui = Player:FindFirstChild("PlayerGui")
+    if playerGui then
+        for _, gui in ipairs(playerGui:GetDescendants()) do
+            if gui:IsA("TextLabel") and gui.Visible then
+                local txt = gui.Text
+                local lv = txt:match("Lv%.?%s*(%d+)") or txt:match("Level%s*:?%s*(%d+)")
+                if lv then
+                    local n = tonumber(lv)
+                    if n and n > 0 then return n end
+                end
+            end
+        end
+    end
+
+    return 1
 end
 
 local function GetHPPercent()
@@ -311,59 +465,105 @@ local function FormatNumber(n)
     return sign .. absStr
 end
 
-local function GetStatByKeywords(keywords, wantString)
-    local function scanContainer(container)
-        if not container then return nil end
-        for _, obj in ipairs(container:GetDescendants()) do
-            local lname = obj.Name:lower()
-            for _, kw in ipairs(keywords) do
-                if lname:find(kw, 1, true) then
-                    if wantString and obj:IsA("StringValue") then
-                        if obj.Value ~= "" and obj.Value ~= "None" then
-                            return obj.Value
+local function ExtractStatValue(obj, wantString)
+    if wantString then
+        if obj:IsA("StringValue") and obj.Value ~= "" and obj.Value ~= "None" then
+            return obj.Value
+        end
+    else
+        if obj:IsA("IntValue") or obj:IsA("NumberValue") then
+            return obj.Value
+        elseif obj:IsA("StringValue") then
+            local clean = obj.Value:gsub(",", "")
+            local num = tonumber(clean)
+            if num then return num end
+        end
+    end
+    return nil
+end
+
+local function GetStatByKeywords(exactNames, substringKeywords, wantString)
+    local containers = {
+        Player:FindFirstChild("PlayerStats"),
+        Player:FindFirstChild("Data"),
+        Player:FindFirstChild("leaderstats"),
+        Player:FindFirstChild("Stats"),
+    }
+
+    -- Pass 1: exact name match on direct children and 1-level subfolders
+    for _, container in ipairs(containers) do
+        if container then
+            for _, child in ipairs(container:GetChildren()) do
+                local lname = child.Name:lower()
+                for _, exact in ipairs(exactNames) do
+                    if lname == exact then
+                        local v = ExtractStatValue(child, wantString)
+                        if v ~= nil then return v end
+                    end
+                end
+                if child:IsA("Folder") or child:IsA("Configuration") then
+                    for _, sub in ipairs(child:GetChildren()) do
+                        local slname = sub.Name:lower()
+                        for _, exact in ipairs(exactNames) do
+                            if slname == exact then
+                                local v = ExtractStatValue(sub, wantString)
+                                if v ~= nil then return v end
+                            end
                         end
-                    elseif not wantString and (obj:IsA("IntValue") or obj:IsA("NumberValue")) then
-                        return obj.Value
                     end
                 end
             end
         end
-        return nil
     end
 
-    for _, folderName in ipairs({"Data", "leaderstats", "PlayerStats", "Stats"}) do
-        local val = scanContainer(Player:FindFirstChild(folderName))
-        if val ~= nil then return val end
+    -- Pass 2: substring fallback in PlayerStats / Data only
+    for i = 1, 2 do
+        local container = containers[i]
+        if container then
+            for _, obj in ipairs(container:GetDescendants()) do
+                local lname = obj.Name:lower()
+                for _, kw in ipairs(substringKeywords) do
+                    if lname:find(kw, 1, true) then
+                        local v = ExtractStatValue(obj, wantString)
+                        if v ~= nil then return v end
+                    end
+                end
+            end
+        end
     end
 
-    return scanContainer(Player)
+    return nil
 end
 
 local function GetBeli()
-    return GetStatByKeywords({"beli", "belly", "money", "cash", "gold"}, false) or 0
+    return GetStatByKeywords({"beli", "belis", "money", "belly"}, {"beli", "belly", "money", "cash", "gold"}, false) or 0
 end
 
 local function GetGems()
-    return GetStatByKeywords({"gem", "gems", "diamond"}, false) or 0
+    return GetStatByKeywords({"gem", "gems"}, {"gem", "diamond"}, false) or 0
 end
 
 local function GetBounty()
-    return GetStatByKeywords({"bounty", "honor"}, false) or 0
+    return GetStatByKeywords({"bounty", "honor"}, {"bounty", "honor"}, false) or 0
 end
 
 local function GetEquippedFruitName()
-    return GetStatByKeywords({"devilfruit", "fruit", "df"}, true) or "None"
+    return GetStatByKeywords({"devilfruit", "df", "fruit"}, {"devilfruit", "fruit"}, true) or "None"
 end
 
 local function FastTeleport(targetCFrame, instantLock)
     if not HumanoidRootPart or not HumanoidRootPart.Parent then return end
     if not Humanoid or not Humanoid.Parent then return end
 
-    task.spawn(function()
-        pcall(function()
-            Player:RequestStreamAroundAsync(targetCFrame.Position)
+    local dist = (HumanoidRootPart.Position - targetCFrame.Position).Magnitude
+
+    if dist > 250 then
+        task.spawn(function()
+            pcall(function()
+                Player:RequestStreamAroundAsync(targetCFrame.Position)
+            end)
         end)
-    end)
+    end
 
     local function resetVelocity()
         if HumanoidRootPart and HumanoidRootPart.Parent then
@@ -377,20 +577,18 @@ local function FastTeleport(targetCFrame, instantLock)
     end
 
     resetVelocity()
+    HumanoidRootPart.CFrame = targetCFrame
 
-    if Settings.InstantTP or instantLock then
-        HumanoidRootPart.CFrame = targetCFrame
+    if (Settings.InstantTP or instantLock) and dist > 80 then
         for _ = 1, 2 do
             RunService.Heartbeat:Wait()
             if not HumanoidRootPart or not HumanoidRootPart.Parent then break end
             resetVelocity()
             HumanoidRootPart.CFrame = targetCFrame
         end
-        if Settings.TeleportDelay > 0 then
-            task.wait(Settings.TeleportDelay)
-        end
-    else
-        HumanoidRootPart.CFrame = targetCFrame + Vector3.new(0, 5, 0)
+    end
+
+    if dist > 80 and Settings.TeleportDelay > 0 then
         task.wait(Settings.TeleportDelay)
     end
 end
@@ -425,106 +623,434 @@ local function GetBossByName(name)
 end
 
 -- =====================================================
--- NPC INTERACTION
+-- NPC INTERACTION (CACHED REMOTES)
 -- =====================================================
+local _questRemotes = nil
+local function GetQuestRemotes()
+    if _questRemotes then return _questRemotes end
+    _questRemotes = {}
+    for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+        if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
+            local lname = remote.Name:lower()
+            if lname:find("quest", 1, true) or lname:find("accept", 1, true) then
+                table.insert(_questRemotes, remote)
+            end
+        end
+    end
+    return _questRemotes
+end
+
 local function InteractWithNPC(npcName)
     local npcs = {}
-    for _, folder in pairs({Workspace:FindFirstChild("NPCs"), Workspace:FindFirstChild("NPC"), Workspace:FindFirstChild("QuestNPCs"), Workspace}) do
+    local searchFolders = {
+        Workspace:FindFirstChild("AllNPC"),
+        Workspace:FindFirstChild("NPCs"),
+        Workspace:FindFirstChild("NPC"),
+        Workspace:FindFirstChild("QuestNPCs"),
+    }
+    local lowerNpc = npcName:lower()
+    for _, folder in ipairs(searchFolders) do
         if folder then
-            for _, obj in pairs(folder:GetDescendants()) do
-                if obj.Name:find(npcName) or (obj:IsA("Model") and obj.Name:lower():find(npcName:lower())) then
+            for _, obj in ipairs(folder:GetChildren()) do
+                if obj.Name:lower():find(lowerNpc, 1, true) then
                     table.insert(npcs, obj)
                 end
             end
         end
     end
-    for _, remote in pairs(ReplicatedStorage:GetDescendants()) do
-        if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
-            if remote.Name:lower():find("quest") or remote.Name:lower():find("accept") then
-                pcall(function()
-                    if remote:IsA("RemoteEvent") then
-                        remote:FireServer("Accept", npcName)
-                        remote:FireServer(npcName)
-                    else
-                        remote:InvokeServer("Accept", npcName)
-                        remote:InvokeServer(npcName)
-                    end
-                end)
+
+    for _, remote in ipairs(GetQuestRemotes()) do
+        pcall(function()
+            if remote:IsA("RemoteEvent") then
+                remote:FireServer("Accept", npcName)
+                remote:FireServer(npcName)
+            else
+                remote:InvokeServer("Accept", npcName)
+                remote:InvokeServer(npcName)
             end
-        end
+        end)
     end
-    for _, npc in pairs(npcs) do
-        if npc:IsA("Model") or npc:IsA("Part") then
-            for _, desc in pairs(npc:GetDescendants()) do
+
+    for _, npc in ipairs(npcs) do
+        if npc:IsA("Model") or npc:IsA("BasePart") then
+            for _, desc in ipairs(npc:GetDescendants()) do
                 if desc:IsA("ProximityPrompt") then
-                    fireproximityprompt(desc); wait(0.5)
+                    pcall(function() fireproximityprompt(desc) end)
+                    task.wait(0.25)
                 elseif desc:IsA("ClickDetector") then
-                    fireclickdetector(desc); wait(0.5)
+                    pcall(function() fireclickdetector(desc) end)
+                    task.wait(0.25)
                 end
             end
         end
     end
-    wait(0.5)
+
+    local playerGui = Player:FindFirstChild("PlayerGui")
+    if playerGui then
+        task.wait(0.15)
+        for _, screen in ipairs(playerGui:GetChildren()) do
+            local sname = screen.Name:lower()
+            if sname:find("quest", 1, true) or sname:find("dialog", 1, true) or sname:find("talk", 1, true) or sname:find("npc", 1, true) then
+                for _, gui in ipairs(screen:GetDescendants()) do
+                    if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and gui.Visible then
+                        local btnName = gui.Name:lower()
+                        local btnText = gui:IsA("TextButton") and (gui.Text or ""):lower() or ""
+                        if btnName:find("accept", 1, true) or btnName:find("confirm", 1, true) or btnName:find("yes", 1, true)
+                            or btnText:find("accept", 1, true) or btnText:find("confirm", 1, true) or btnText:find("yes", 1, true) then
+                            if typeof(firesignal) == "function" then
+                                pcall(function() firesignal(gui.MouseButton1Click) end)
+                                pcall(function() firesignal(gui.Activated) end)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    task.wait(0.25)
 end
 
 local function HasActiveQuest()
+    local cq = Player:FindFirstChild("CurrentQuest")
+    if cq and cq:IsA("StringValue") then
+        local lv = (cq.Value or ""):lower()
+        if lv ~= "" and lv ~= "none" and lv ~= "0" then
+            return true
+        end
+    end
+
     local playerGui = Player:FindFirstChild("PlayerGui")
     if playerGui then
-        for _, gui in pairs(playerGui:GetDescendants()) do
-            if gui:IsA("TextLabel") or gui:IsA("TextButton") then
-                local text = gui.Text:lower()
-                if text:find("quest") and (text:find("/") or text:find("defeat") or text:find("kill")) then
-                    return true
+        for _, child in ipairs(playerGui:GetChildren()) do
+            local lname = child.Name:lower()
+            if lname:find("quest", 1, true) or lname:find("hud", 1, true) or lname:find("main", 1, true) then
+                for _, gui in ipairs(child:GetDescendants()) do
+                    if (gui:IsA("TextLabel") or gui:IsA("TextButton")) and gui.Visible then
+                        local text = (gui.Text or ""):lower()
+                        local parentQuest = gui.Parent and gui.Parent.Name:lower():find("quest", 1, true)
+                        local grandQuest = (gui.Parent and gui.Parent.Parent) and gui.Parent.Parent.Name:lower():find("quest", 1, true)
+                        if (text:find("defeat", 1, true) or text:find("eliminate", 1, true) or text:find("kill", 1, true)) and text:match("%d+") then
+                            return true
+                        elseif text:match("%d+%s*/%s*%d+") and (parentQuest or grandQuest) then
+                            return true
+                        elseif text:find("quest", 1, true) and (text:find("/", 1, true) or text:find("defeat", 1, true) or text:find("kill", 1, true)) then
+                            return true
+                        end
+                    end
                 end
             end
         end
     end
-    local data = Player:FindFirstChild("Data") or Player:FindFirstChild("QuestData")
-    if data then
-        local questActive = data:FindFirstChild("Quest") or data:FindFirstChild("QuestActive")
-        if questActive and questActive.Value ~= "" and questActive.Value ~= "None" then
-            return true
+
+    for _, folderName in ipairs({"PlayerStats", "Data", "QuestData"}) do
+        local data = Player:FindFirstChild(folderName)
+        if data then
+            for _, keyName in ipairs({"Quest", "QuestName", "CurrentQuest", "QuestActive"}) do
+                local val = data:FindFirstChild(keyName)
+                if val then
+                    if val:IsA("StringValue") then
+                        local lv = (val.Value or ""):lower()
+                        if lv ~= "" and lv ~= "none" and lv ~= "0" then
+                            return true
+                        end
+                    elseif val:IsA("BoolValue") and val.Value == true then
+                        return true
+                    elseif (val:IsA("IntValue") or val:IsA("NumberValue")) and val.Value > 0 then
+                        return true
+                    end
+                end
+            end
         end
     end
     return false
 end
 
 -- =====================================================
--- FIND MOB / BOSS
+-- FIND MOB / BOSS (CACHED LIVING MOB SCANNER)
 -- =====================================================
-local function FindNearestMob(mobName, maxRange)
-    local nearestMob, nearestDist = nil, maxRange or Settings.FarmRange
-    for _, folder in pairs({Workspace:FindFirstChild("Mobs"), Workspace:FindFirstChild("Monsters"), Workspace:FindFirstChild("Enemies"), Workspace:FindFirstChild("NPCs"), Workspace}) do
+local _cachedMobs = {}
+local _cachedMobsTime = 0
+
+local function ParseMobLevel(mob, hum)
+    if _hakiState.mobLevelCache[mob] ~= nil then
+        return _hakiState.mobLevelCache[mob] or nil
+    end
+
+    local function extractFromStr(str)
+        if not str or str == "" then return nil end
+        local lv = str:match("%[Lv%.?%s*(%d+)%]")
+            or str:match("Lv%.?%s*(%d+)")
+            or str:match("Level%s*:?%s*(%d+)")
+        return lv and tonumber(lv) or nil
+    end
+
+    local parsed = extractFromStr(mob.Name)
+    if not parsed and hum then
+        parsed = extractFromStr(hum.DisplayName)
+    end
+    if not parsed then
+        for _, key in ipairs({"Level", "Lv", "MobLevel"}) do
+            local v = mob:FindFirstChild(key)
+            if v and (v:IsA("IntValue") or v:IsA("NumberValue")) and v.Value > 0 then
+                parsed = v.Value
+                break
+            end
+        end
+    end
+    if not parsed then
+        for _, subName in ipairs({"Data", "Stats", "Configuration"}) do
+            local sub = mob:FindFirstChild(subName)
+            if sub then
+                for _, key in ipairs({"Level", "Lv", "MobLevel"}) do
+                    local v = sub:FindFirstChild(key)
+                    if v and (v:IsA("IntValue") or v:IsA("NumberValue")) and v.Value > 0 then
+                        parsed = v.Value
+                        break
+                    end
+                end
+            end
+            if parsed then break end
+        end
+    end
+    if not parsed then
+        local attr = mob:GetAttribute("Level") or mob:GetAttribute("Lv") or mob:GetAttribute("MobLevel")
+        if type(attr) == "number" and attr > 0 then
+            parsed = attr
+        end
+    end
+    if not parsed then
+        for _, desc in ipairs(mob:GetDescendants()) do
+            if desc:IsA("TextLabel") then
+                local n = extractFromStr(desc.Text)
+                if n and n > 0 then
+                    parsed = n
+                    break
+                end
+            end
+        end
+    end
+
+    _hakiState.mobLevelCache[mob] = parsed or false
+    return parsed
+end
+
+local function GetLivingMobs()
+    local now = tick()
+    if now - _cachedMobsTime < 0.25 and #_cachedMobs > 0 then
+        local stillAlive = {}
+        for _, entry in ipairs(_cachedMobs) do
+            if entry.mob and entry.mob.Parent and entry.hum and entry.hum.Health > 0 and entry.root and entry.root.Parent then
+                table.insert(stillAlive, entry)
+            end
+        end
+        if #stillAlive > 0 then
+            _cachedMobs = stillAlive
+            return _cachedMobs
+        end
+    end
+
+    local results = {}
+    local seen = {}
+    local function addIfMob(obj, isBossHint)
+        if not obj:IsA("Model") or seen[obj] or obj == Character then return end
+        if Players:GetPlayerFromCharacter(obj) then return end
+        local lname = obj.Name:lower()
+        if lname:find("quest", 1, true) or lname:find("dealer", 1, true)
+            or lname:find("shop", 1, true) or lname:find("gacha", 1, true)
+            or lname:find("merchant", 1, true) then
+            return
+        end
+        local hum = obj:FindFirstChildOfClass("Humanoid")
+        local root = obj:FindFirstChild("HumanoidRootPart") or obj.PrimaryPart
+        if hum and root and hum.Health > 0 then
+            seen[obj] = true
+            local isBoss = isBossHint or lname:find("boss", 1, true) ~= nil
+            table.insert(results, {
+                mob = obj,
+                hum = hum,
+                root = root,
+                lname = lname,
+                isBoss = isBoss,
+                level = ParseMobLevel(obj, hum),
+            })
+        end
+    end
+
+    local containers = {
+        Workspace:FindFirstChild("Monster"),
+        Workspace:FindFirstChild("Monsters"),
+        Workspace:FindFirstChild("Mobs"),
+        Workspace:FindFirstChild("Enemies"),
+        Workspace:FindFirstChild("SeaMonster"),
+        Workspace:FindFirstChild("SeaMonsters"),
+    }
+
+    local foundContainer = false
+    for _, folder in ipairs(containers) do
         if folder then
-            for _, mob in pairs(folder:GetChildren()) do
-                if mob:IsA("Model") and mob.Name:find(mobName) then
-                    local hum = mob:FindFirstChild("Humanoid") or mob:FindFirstChildOfClass("Humanoid")
-                    local root = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
-                    if hum and root and hum.Health > 0 then
-                        local dist = (HumanoidRootPart.Position - root.Position).Magnitude
-                        if dist < nearestDist then nearestDist = dist; nearestMob = mob end
+            foundContainer = true
+            for _, child in ipairs(folder:GetChildren()) do
+                if child:IsA("Model") then
+                    addIfMob(child, false)
+                elseif child:IsA("Folder") then
+                    local subBoss = child.Name:lower():find("boss", 1, true) ~= nil
+                    for _, subChild in ipairs(child:GetChildren()) do
+                        if subChild:IsA("Model") then
+                            addIfMob(subChild, subBoss)
+                        elseif subChild:IsA("Folder") then
+                            for _, leaf in ipairs(subChild:GetChildren()) do
+                                addIfMob(leaf, subBoss)
+                            end
+                        end
                     end
                 end
             end
         end
     end
-    return nearestMob
+
+    if not foundContainer or #results == 0 then
+        for _, child in ipairs(Workspace:GetChildren()) do
+            if child:IsA("Model") then
+                addIfMob(child, false)
+            end
+        end
+    end
+
+    _cachedMobs = results
+    _cachedMobsTime = now
+    return results
+end
+
+local function FindNearestMob(mobName, maxRange, playerLevel)
+    Character = Player.Character
+    HumanoidRootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not HumanoidRootPart or not HumanoidRootPart.Parent then return nil end
+    local rangeLimit = maxRange or Settings.FarmRange
+    local living = GetLivingMobs()
+    local targetLower = mobName and mobName:lower() or ""
+    local playerPos = HumanoidRootPart.Position
+
+    if playerLevel then
+        -- Priority 1: Match active quest mob name from visible PlayerGui text
+        local questTextLower = nil
+        local playerGui = Player:FindFirstChild("PlayerGui")
+        if playerGui then
+            for _, screen in ipairs(playerGui:GetChildren()) do
+                local sname = screen.Name:lower()
+                if sname:find("quest", 1, true) or sname:find("hud", 1, true) or sname:find("main", 1, true) then
+                    for _, gui in ipairs(screen:GetDescendants()) do
+                        if (gui:IsA("TextLabel") or gui:IsA("TextButton")) and gui.Visible then
+                            local txt = (gui.Text or ""):lower()
+                            if txt:find("defeat", 1, true) or txt:find("eliminate", 1, true) or txt:find("kill", 1, true) or txt:match("%d+%s*/%s*%d+") then
+                                questTextLower = (questTextLower and (questTextLower .. " ") or "") .. txt
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if questTextLower then
+            local qMob, qDist = nil, rangeLimit
+            for _, entry in ipairs(living) do
+                if not entry.isBoss then
+                    local baseName = entry.lname:gsub("%[.-%]", ""):gsub("lv%.?%s*%d+", ""):match("^%s*(.-)%s*$") or ""
+                    if #baseName >= 3 and questTextLower:find(baseName, 1, true) then
+                        local dist = (playerPos - entry.root.Position).Magnitude
+                        if dist < qDist then
+                            qDist = dist
+                            qMob = entry.mob
+                        end
+                    end
+                end
+            end
+            if qMob then return qMob end
+        end
+
+        -- Priority 2: Best target level matching playerLevel from real in-game mobs
+        local bestBelowLv, bestBelowDiff = nil, math.huge
+        local bestAboveLv, bestAboveDiff = nil, math.huge
+        for _, entry in ipairs(living) do
+            if not entry.isBoss and entry.level then
+                local dist = (playerPos - entry.root.Position).Magnitude
+                if dist < rangeLimit then
+                    if entry.level <= playerLevel then
+                        local diff = playerLevel - entry.level
+                        if diff < bestBelowDiff then
+                            bestBelowDiff = diff
+                            bestBelowLv = entry.level
+                        end
+                    elseif entry.level <= playerLevel + 25 then
+                        local diff = entry.level - playerLevel
+                        if diff < bestAboveDiff then
+                            bestAboveDiff = diff
+                            bestAboveLv = entry.level
+                        end
+                    end
+                end
+            end
+        end
+        local chosenLv = bestBelowLv or bestAboveLv
+        if chosenLv then
+            local lvMob, lvDist = nil, rangeLimit
+            for _, entry in ipairs(living) do
+                if not entry.isBoss and entry.level == chosenLv then
+                    local dist = (playerPos - entry.root.Position).Magnitude
+                    if dist < lvDist then
+                        lvDist = dist
+                        lvMob = entry.mob
+                    end
+                end
+            end
+            if lvMob then return lvMob end
+        end
+    end
+
+    -- Priority 3: substring match by mobName
+    local nearestMob, nearestDist = nil, rangeLimit
+    if targetLower ~= "" then
+        for _, entry in ipairs(living) do
+            if entry.lname:find(targetLower, 1, true) then
+                local dist = (playerPos - entry.root.Position).Magnitude
+                if dist < nearestDist then
+                    nearestDist = dist
+                    nearestMob = entry.mob
+                end
+            end
+        end
+    end
+    if nearestMob then return nearestMob end
+
+    -- Priority 4: nearest non-boss living mob fallback
+    if playerLevel then
+        local anyMob, anyDist = nil, rangeLimit
+        for _, entry in ipairs(living) do
+            if not entry.isBoss then
+                local dist = (playerPos - entry.root.Position).Magnitude
+                if dist < anyDist then
+                    anyDist = dist
+                    anyMob = entry.mob
+                end
+            end
+        end
+        return anyMob
+    end
+
+    return nil
 end
 
 local function FindAllMobs(mobName, maxRange)
     local mobs = {}
-    maxRange = maxRange or Settings.BringRange
-    for _, folder in pairs({Workspace:FindFirstChild("Mobs"), Workspace:FindFirstChild("Monsters"), Workspace:FindFirstChild("Enemies"), Workspace:FindFirstChild("NPCs"), Workspace}) do
-        if folder then
-            for _, mob in pairs(folder:GetChildren()) do
-                if mob:IsA("Model") and mob.Name:find(mobName) then
-                    local hum = mob:FindFirstChild("Humanoid") or mob:FindFirstChildOfClass("Humanoid")
-                    local root = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
-                    if hum and root and hum.Health > 0 then
-                        local dist = (HumanoidRootPart.Position - root.Position).Magnitude
-                        if dist < maxRange then table.insert(mobs, mob) end
-                    end
-                end
+    if not HumanoidRootPart or not HumanoidRootPart.Parent then return mobs end
+    local limit = maxRange or Settings.BringRange
+    local targetLower = mobName and mobName:lower() or ""
+    local playerPos = HumanoidRootPart.Position
+
+    for _, entry in ipairs(GetLivingMobs()) do
+        if targetLower == "" or entry.lname:find(targetLower, 1, true) then
+            local dist = (playerPos - entry.root.Position).Magnitude
+            if dist < limit then
+                table.insert(mobs, entry.mob)
             end
         end
     end
@@ -532,13 +1058,26 @@ local function FindAllMobs(mobName, maxRange)
 end
 
 local function FindBoss(bossName)
-    for _, folder in pairs({Workspace:FindFirstChild("Bosses"), Workspace:FindFirstChild("Boss"), Workspace}) do
+    local bossLower = bossName:lower()
+    for _, entry in ipairs(GetLivingMobs()) do
+        if entry.lname:find(bossLower, 1, true) then
+            return entry.mob
+        end
+    end
+    for _, folder in ipairs({Workspace:FindFirstChild("Bosses"), Workspace:FindFirstChild("Boss")}) do
         if folder then
-            for _, obj in pairs(folder:GetDescendants()) do
-                if obj:IsA("Model") and obj.Name:find(bossName) then
+            for _, obj in ipairs(folder:GetDescendants()) do
+                if obj:IsA("Model") and obj.Name:lower():find(bossLower, 1, true) then
                     local hum = obj:FindFirstChildOfClass("Humanoid")
                     if hum and hum.Health > 0 then return obj end
                 end
+            end
+        end
+    end
+    if not _selectedBoss then
+        for _, entry in ipairs(GetLivingMobs()) do
+            if entry.isBoss then
+                return entry.mob
             end
         end
     end
@@ -589,38 +1128,79 @@ local function BackgroundM1_Safe()
 
     _m1Count = _m1Count + 1
 
-    -- === LAYER 1: Direct Tool API (primary, always works) ===
-    pcall(function()
-        tool.ManualActivationOnly = false
-        tool:Activate()
-    end)
-
-    -- Deactivate after 1 frame so tool does not get stuck held
-    task.defer(function()
+    if Settings.M1Method ~= "Remote" then
+        -- === LAYER 1: Direct Tool API (primary) ===
         pcall(function()
-            if tool and tool.Parent == char then
-                tool:Deactivate()
-            end
+            tool.ManualActivationOnly = false
+            tool:Activate()
         end)
-    end)
 
-    -- === LAYER 2: Internal firesignal (if supported by executor) ===
-    if typeof(firesignal) == "function" then
-        pcall(function() firesignal(tool.Activated) end)
+        -- Deactivate after 1 frame so tool does not get stuck held
+        task.defer(function()
+            pcall(function()
+                if tool and tool.Parent == char then
+                    tool:Deactivate()
+                end
+            end)
+        end)
+
+        -- === LAYER 2: Internal firesignal (if supported by executor) ===
+        if typeof(firesignal) == "function" then
+            pcall(function() firesignal(tool.Activated) end)
+        end
     end
 
-    -- === LAYER 3: Fire combat remote directly (backup) ===
+    -- === LAYER 3: Official King Legacy SkillAction remote (plus backup scan) ===
     if Settings.M1Method == "Remote" or Settings.M1Method == "Both" then
-        CacheCombatRemotes()
-        for _, remote in ipairs(_combatRemotes) do
-            pcall(function()
-                remote:FireServer()
-            end)
+        if _hakiState.skillActionRemote == nil then
+            local chest = ReplicatedStorage:FindFirstChild("Chest")
+            local remotes = chest and chest:FindFirstChild("Remotes")
+            local funcs = remotes and remotes:FindFirstChild("Functions")
+            local sa = funcs and funcs:FindFirstChild("SkillAction")
+            _hakiState.skillActionRemote = sa or false
+        end
+        local skillAction = _hakiState.skillActionRemote
+        if skillAction and skillAction ~= false then
+            if not _hakiState.m1RemoteBusy or (tick() - (_hakiState.m1RemoteBusySince or 0)) > 1.5 then
+                _hakiState.m1RemoteBusy = true
+                _hakiState.m1RemoteBusySince = tick()
+                local tip = tool.ToolTip
+                local prefix = (tip == "Sword" and "SW") or (tip == "Fruit Power" and "FP") or "FS"
+                local actionName = prefix .. "_" .. tool.Name .. "_M1"
+                task.spawn(function()
+                    pcall(function()
+                        skillAction:InvokeServer(actionName)
+                    end)
+                    _hakiState.m1RemoteBusy = false
+                end)
+            end
+        else
+            CacheCombatRemotes()
+            for _, remote in ipairs(_combatRemotes) do
+                pcall(function()
+                    remote:FireServer()
+                end)
+            end
         end
     end
 end
 
 -- Get combat weapons (Melee / Sword / Fruit)
+local function IsCombatWeaponTool(item)
+    if not item or not item:IsA("Tool") then return false end
+    local lname = item.Name:lower()
+    for _, kw in ipairs({
+        "dragon orb", "orb", "key", "torch", "cup", "ticket", "scroll",
+        "carrot", "log", "pile", "pearl", "artifact", "compass", "map",
+        "book", "chalice", "flower",
+    }) do
+        if lname:find(kw, 1, true) then
+            return false
+        end
+    end
+    return true
+end
+
 local function GetCombatTools(char)
     local tools = {}
     if #Settings.ReAttackWeapons > 0 then
@@ -631,10 +1211,12 @@ local function GetCombatTools(char)
     else
         local seen = {}
         for _, container in ipairs({Player.Backpack, char}) do
-            for _, item in ipairs(container:GetChildren()) do
-                if item:IsA("Tool") and not seen[item.Name] then
-                    seen[item.Name] = true
-                    table.insert(tools, item)
+            if container then
+                for _, item in ipairs(container:GetChildren()) do
+                    if IsCombatWeaponTool(item) and not seen[item.Name] then
+                        seen[item.Name] = true
+                        table.insert(tools, item)
+                    end
                 end
             end
         end
@@ -700,7 +1282,7 @@ local function EquipSelectedWeapon()
         for _, container in ipairs({char, Player.Backpack}) do
             if container then
                 for _, item in ipairs(container:GetChildren()) do
-                    if item:IsA("Tool") then
+                    if IsCombatWeaponTool(item) then
                         local n = item.Name:lower()
                         local tip = (item.ToolTip or ""):lower()
                         if wType == "sword" and (n:find("sword") or n:find("katana") or n:find("blade") or n:find("bisento") or n:find("yoru") or tip:find("sword")) then
@@ -710,6 +1292,20 @@ local function EquipSelectedWeapon()
                         elseif wType == "melee" and (n:find("combat") or n:find("step") or n:find("dragon") or n:find("electro") or n:find("karate") or n:find("human") or tip:find("melee")) then
                             targetTool = item; break
                         end
+                    end
+                end
+            end
+            if targetTool then break end
+        end
+    end
+
+    if not targetTool then
+        for _, container in ipairs({char, Player.Backpack}) do
+            if container then
+                for _, item in ipairs(container:GetChildren()) do
+                    if IsCombatWeaponTool(item) then
+                        targetTool = item
+                        break
                     end
                 end
             end
@@ -730,21 +1326,11 @@ end
 -- NORMAL ATTACK (when ReAttack is off)
 -- =====================================================
 local function AutoAttack_Normal()
-    -- Use Tool:Activate directly without touching mouse input
-    local char = Player.Character
-    if not char then return end
-    local tool = char:FindFirstChildOfClass("Tool")
-    if tool then
-        pcall(function()
-            tool.ManualActivationOnly = false
-            tool:Activate()
-        end)
-        task.defer(function()
-            pcall(function()
-                if tool and tool.Parent == char then tool:Deactivate() end
-            end)
-        end)
-    end
+    BackgroundM1_Safe()
+    pcall(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton1(Vector2.new(9999, 9999))
+    end)
 end
 
 local SkillHoldOrder = {"Z", "X", "C", "V", "B", "E"}
@@ -752,29 +1338,48 @@ local SkillHoldOrder = {"Z", "X", "C", "V", "B", "E"}
 local function UseCombo()
     if not Settings.AutoCombo then return end
     if UIS:GetFocusedTextBox() then return end
+    if _hakiState.comboRunning then return end
     local now = tick()
     if now - _lastComboTime < Settings.ComboCD then return end
     _lastComboTime = now
+    _hakiState.comboRunning = true
 
-    for _, key in ipairs(SkillHoldOrder) do
-        local cfg = Settings.SkillHold[key]
-        if cfg and cfg.Enabled then
-            local keyCode = Enum.KeyCode[key]
-            local holdTime = math.max(0.05, cfg.Hold or 0)
-            pcall(function()
-                VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-                task.wait(holdTime)
-                VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
-            end)
-            task.wait(Settings.SkillDelay)
-        end
-    end
+    task.spawn(function()
+        pcall(function()
+            for _, key in ipairs(SkillHoldOrder) do
+                if not _running or not Settings.AutoCombo or UIS:GetFocusedTextBox() then break end
+                local cfg = Settings.SkillHold[key]
+                if cfg and cfg.Enabled then
+                    local keyCode = Enum.KeyCode[key]
+                    local holdTime = math.max(0.05, cfg.Hold or 0)
+                    pcall(function()
+                        VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+                        task.wait(holdTime)
+                        VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+                    end)
+                    task.wait(Settings.SkillDelay)
+                end
+            end
+        end)
+        _hakiState.comboRunning = false
+    end)
 end
 
 -- =====================================================
--- HOVER LOCK (HOVER ABOVE MOB + LOCK FACE)
+-- HOVER LOCK (60-FPS HEARTBEAT HOVER + SAFE LOOKAT)
 -- =====================================================
-local function EnableHoverLock(hoverPos, lookAtPos)
+local function SafeLookAt(fromPos, lookPos)
+    local dx = lookPos.X - fromPos.X
+    local dz = lookPos.Z - fromPos.Z
+    if (dx * dx + dz * dz) < 0.04 then
+        lookPos = Vector3.new(fromPos.X, lookPos.Y, fromPos.Z - 0.35)
+    end
+    return CFrame.lookAt(fromPos, lookPos)
+end
+
+local function EnableHoverLock(hoverPos, lookAtPos, targetRoot)
+    Character = Player.Character
+    HumanoidRootPart = Character and Character:FindFirstChild("HumanoidRootPart")
     if not HumanoidRootPart or not HumanoidRootPart.Parent then return end
     if not Character or not Character.Parent then return end
 
@@ -801,23 +1406,94 @@ local function EnableHoverLock(hoverPos, lookAtPos)
         _hoverBG.Parent = HumanoidRootPart
     end
 
-    local lockedCF = Settings.LockLookAtMob
-        and CFrame.lookAt(hoverPos, lookAtPos)
-        or CFrame.new(hoverPos)
+    _hakiState.hoverPos = hoverPos
+    _hakiState.hoverLook = lookAtPos
+    _hakiState.hoverRoot = targetRoot
+    _hakiState.hoverActive = true
 
+    if not _hakiState.getHoverOffset then
+        _hakiState.getHoverOffset = function()
+            local posMode = Settings.FarmPosition or "Above"
+            local dist = Settings.HoverHeight or 14
+            if posMode == "Beside" then
+                return Vector3.new(0, 2, math.clamp(dist, 6, 25))
+            elseif posMode == "Lower" then
+                return Vector3.new(0, -math.clamp(dist, 6, 18), 0)
+            end
+            return Vector3.new(0, dist, 0)
+        end
+    end
+
+    if not _hakiState.hoverConn then
+        _hakiState.hoverConn = RunService.Heartbeat:Connect(function()
+            if not _running then
+                if _hakiState.hoverConn then
+                    _hakiState.hoverConn:Disconnect()
+                    _hakiState.hoverConn = nil
+                end
+                return
+            end
+            if not _hakiState.hoverActive or Settings.AutoDungeon then return end
+            local char = Player.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not char or not hrp then return end
+
+            local pos = _hakiState.hoverPos
+            local look = _hakiState.hoverLook
+            local tRoot = _hakiState.hoverRoot
+            if tRoot and tRoot.Parent then
+                local tModel = tRoot.Parent
+                local tHum = tModel and tModel:FindFirstChildOfClass("Humanoid")
+                if not tHum or tHum.Health > 0 then
+                    look = tRoot.Position
+                    pos = look + _hakiState.getHoverOffset()
+                    _hakiState.hoverPos = pos
+                    _hakiState.hoverLook = look
+                    if typeof(getgenv) == "function" then
+                        pcall(function() getgenv().PosMonSkill = tRoot.CFrame end)
+                    end
+                end
+            end
+            if not pos or not look then return end
+
+            local cf = Settings.LockLookAtMob and SafeLookAt(pos, look) or CFrame.new(pos)
+            hrp.Velocity = Vector3.zero
+            hrp.RotVelocity = Vector3.zero
+            hrp.CFrame = cf
+            if _hoverBG and _hoverBG.Parent then
+                _hoverBG.CFrame = cf
+            end
+            if _hoverBV and _hoverBV.Parent then
+                _hoverBV.Velocity = Vector3.zero
+            end
+        end)
+    end
+
+    local lockedCF = Settings.LockLookAtMob and SafeLookAt(hoverPos, lookAtPos) or CFrame.new(hoverPos)
     HumanoidRootPart.Velocity = Vector3.zero
     HumanoidRootPart.RotVelocity = Vector3.zero
     HumanoidRootPart.CFrame = lockedCF
     _hoverBG.CFrame = lockedCF
 
-    for _, part in ipairs(Character:GetDescendants()) do
-        if part:IsA("BasePart") then
+    for _, part in ipairs(Character:GetChildren()) do
+        if part:IsA("BasePart") and part.CanCollide then
             part.CanCollide = false
         end
     end
 end
 
 local function DisableHoverLock()
+    _hakiState.hoverActive = false
+    _hakiState.hoverRoot = nil
+    _hakiState.hoverPos = nil
+    _hakiState.hoverLook = nil
+    if typeof(getgenv) == "function" then
+        pcall(function() getgenv().PosMonSkill = nil end)
+    end
+
+    Character = Player.Character
+    HumanoidRootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+
     if _hoverBV and _hoverBV.Parent then
         _hoverBV:Destroy()
     end
@@ -834,64 +1510,375 @@ local function DisableHoverLock()
         local oldBG = HumanoidRootPart:FindFirstChild("KL_HoverBG")
         if oldBG then oldBG:Destroy() end
     end
+
+    if not Settings.AutoDungeon and Character and Character.Parent then
+        for _, partName in ipairs({"HumanoidRootPart", "Torso", "UpperTorso", "LowerTorso", "Head"}) do
+            local p = Character:FindFirstChild(partName)
+            if p and p:IsA("BasePart") then
+                p.CanCollide = true
+            end
+        end
+    end
 end
 
 -- =====================================================
 -- AUTO ARMAMENT HAKI
 -- =====================================================
-local function IsHakiActive(char)
-    if not char then return false end
+do
+    local limbNames = {
+        "Right Arm", "Left Arm",
+        "RightHand", "LeftHand",
+        "RightLowerArm", "LeftLowerArm",
+        "RightUpperArm", "LeftUpperArm",
+        "Right Leg", "Left Leg",
+    }
+    local armNames = {
+        ["Right Arm"] = "R", ["Left Arm"] = "L",
+        ["RightHand"] = "R", ["LeftHand"] = "L",
+        ["RightLowerArm"] = "R", ["LeftLowerArm"] = "L",
+    }
+    local activeFlagNames = {
+        "BusoActive", "HakiActive", "ArmamentActive",
+        "UsingBuso", "UsingHaki", "BusoOn", "HakiOn",
+    }
 
-    if char:FindFirstChild("Buso")
-       or char:FindFirstChild("Haki")
-       or char:FindFirstChild("Armament")
-       or char:FindFirstChild("Busoshoku") then
-        return true
+    local function isExcludedHakiName(lname)
+        return lname:find("ken", 1, true)
+            or lname:find("observ", 1, true)
+            or lname:find("conquer", 1, true)
+            or lname:find("hao", 1, true)
     end
 
-    if char:GetAttribute("Buso") == true
-       or char:GetAttribute("Haki") == true
-       or char:GetAttribute("Armament") == true then
-        return true
+    local function matchesBusoAttr(name)
+        local lname = tostring(name):lower()
+        if isExcludedHakiName(lname) then return false end
+        return lname:find("buso", 1, true)
+            or lname:find("armament", 1, true)
+            or lname:find("busoshoku", 1, true)
+            or lname:find("aura", 1, true)
+            or lname:find("haki", 1, true)
     end
 
-    for _, desc in ipairs(char:GetDescendants()) do
-        local lname = desc.Name:lower()
-        if lname:find("buso") or lname:find("haki") or lname:find("armament") then
-            if desc:IsA("BoolValue") then
-                if desc.Value == true then return true end
-            elseif desc:IsA("ParticleEmitter") or desc:IsA("Highlight") then
-                if desc.Enabled then return true end
-            elseif desc:IsA("BasePart") or desc:IsA("MeshPart") or desc:IsA("Model") or desc:IsA("Accessory") then
+    local function matchesBusoDesc(name)
+        local lname = tostring(name):lower()
+        if isExcludedHakiName(lname) then return false end
+        return lname:find("buso", 1, true)
+            or lname:find("armament", 1, true)
+            or lname:find("busoshoku", 1, true)
+            or lname:find("aura", 1, true)
+            or lname:find("coating", 1, true)
+            or lname:find("haki", 1, true)
+    end
+
+    local function isTruthyVal(val)
+        local t = typeof(val)
+        if t == "boolean" then
+            return val == true
+        elseif t == "number" then
+            return val > 0
+        elseif t == "string" then
+            local lv = val:lower()
+            return lv ~= "" and lv ~= "0" and lv ~= "false" and lv ~= "off" and lv ~= "none"
+        end
+        return false
+    end
+
+    local function colorDistance(c1, c2)
+        local dr = c1.R - c2.R
+        local dg = c1.G - c2.G
+        local db = c1.B - c2.B
+        return math.sqrt(dr * dr + dg * dg + db * db)
+    end
+
+    local function isUnderTool(inst, stopRoot)
+        local cur = inst.Parent
+        while cur and cur ~= stopRoot do
+            if cur:IsA("Tool") then return true end
+            cur = cur.Parent
+        end
+        return false
+    end
+
+    local function CheckPositiveHakiIndicators(char)
+        if not char then return false end
+
+        for _, target in ipairs({char, Player}) do
+            local ok, attrs = pcall(function() return target:GetAttributes() end)
+            if ok and type(attrs) == "table" then
+                for k, v in pairs(attrs) do
+                    if matchesBusoAttr(k) and isTruthyVal(v) then
+                        return true
+                    end
+                end
+            end
+        end
+
+        for _, desc in ipairs(char:GetDescendants()) do
+            if desc:IsA("Highlight") and desc.Enabled then
                 return true
+            end
+            if matchesBusoDesc(desc.Name) then
+                if desc:IsA("BoolValue") then
+                    if desc.Value == true then return true end
+                elseif desc:IsA("IntValue") or desc:IsA("NumberValue") then
+                    if desc.Value > 0 then return true end
+                elseif desc:IsA("StringValue") then
+                    if isTruthyVal(desc.Value) then return true end
+                elseif desc:IsA("ParticleEmitter") or desc:IsA("Sparkles") or desc:IsA("Beam")
+                    or desc:IsA("Trail") or desc:IsA("Fire") or desc:IsA("Smoke") then
+                    if desc.Enabled then return true end
+                elseif desc:IsA("BasePart") or desc:IsA("MeshPart") or desc:IsA("UnionOperation")
+                    or desc:IsA("Decal") or desc:IsA("Texture") then
+                    if desc.Transparency < 0.95 then return true end
+                elseif desc:IsA("SpecialMesh") or desc:IsA("SurfaceAppearance") then
+                    if desc.Parent and desc.Parent:IsA("BasePart") and desc.Parent.Transparency < 0.95 then
+                        return true
+                    end
+                elseif desc:IsA("Model") or desc:IsA("Folder") or desc:IsA("Accessory") then
+                    for _, sub in ipairs(desc:GetDescendants()) do
+                        if (sub:IsA("BasePart") and sub.Transparency < 0.95)
+                            or ((sub:IsA("ParticleEmitter") or sub:IsA("Highlight")) and sub.Enabled) then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+
+        local head = char:FindFirstChild("Head")
+        local bodyColors = char:FindFirstChildOfClass("BodyColors")
+        for _, limbName in ipairs(limbNames) do
+            local limb = char:FindFirstChild(limbName)
+            if limb and limb:IsA("BasePart") then
+                for _, child in ipairs(limb:GetChildren()) do
+                    if (child:IsA("BasePart") or child:IsA("MeshPart") or child:IsA("UnionOperation")
+                        or child:IsA("Decal") or child:IsA("Texture")) and child.Transparency < 0.95 then
+                        return true
+                    elseif (child:IsA("Highlight") or child:IsA("ParticleEmitter")) and child.Enabled then
+                        return true
+                    elseif child:IsA("SurfaceAppearance") then
+                        return true
+                    end
+                end
+
+                local side = armNames[limbName]
+                if side then
+                    if (limb.Material == Enum.Material.Neon or limb.Material == Enum.Material.ForceField
+                        or limb.Material == Enum.Material.Metal or limb.Material == Enum.Material.Glass)
+                        and (not head or not head:IsA("BasePart") or limb.Material ~= head.Material) then
+                        return true
+                    end
+                    if bodyColors then
+                        local baseColor = (side == "R") and bodyColors.RightArmColor3 or bodyColors.LeftArmColor3
+                        if colorDistance(limb.Color, baseColor) > 0.08 then
+                            return true
+                        end
+                    end
+                    if head and head:IsA("BasePart") then
+                        if limb.Color.R < 0.15 and limb.Color.G < 0.15 and limb.Color.B < 0.15
+                            and (head.Color.R > 0.25 or head.Color.G > 0.25 or head.Color.B > 0.25) then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+
+        for _, containerName in ipairs({"Data", "PlayerStats"}) do
+            local stats = Player:FindFirstChild(containerName)
+            if stats then
+                for _, flagName in ipairs(activeFlagNames) do
+                    local flag = stats:FindFirstChild(flagName)
+                    if flag then
+                        if flag:IsA("BoolValue") and flag.Value == true then
+                            return true
+                        elseif (flag:IsA("IntValue") or flag:IsA("NumberValue")) and flag.Value > 0 then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+
+        return false
+    end
+
+    local function CaptureHakiBaseline(char)
+        if not char then return end
+        _hakiState.baselineChar = char
+        _hakiState.limbColors = {}
+        _hakiState.limbMaterials = {}
+        _hakiState.visibleObjs = {}
+
+        for _, limbName in ipairs(limbNames) do
+            local limb = char:FindFirstChild(limbName)
+            if limb and limb:IsA("BasePart") then
+                _hakiState.limbColors[limb] = limb.Color
+                _hakiState.limbMaterials[limb] = limb.Material
+            end
+        end
+
+        for _, desc in ipairs(char:GetDescendants()) do
+            local dName = desc.Name
+            if dName ~= "KL_HoverBV" and dName ~= "KL_HoverBG" and dName ~= "KL_DungeonBV" and not isUnderTool(desc, char) then
+                if ((desc:IsA("BasePart") or desc:IsA("MeshPart") or desc:IsA("UnionOperation")
+                    or desc:IsA("Decal") or desc:IsA("Texture")) and desc.Transparency < 0.95)
+                    or ((desc:IsA("Highlight") or desc:IsA("ParticleEmitter")) and desc.Enabled) then
+                    _hakiState.visibleObjs[desc] = true
+                end
             end
         end
     end
 
-    for _, containerName in ipairs({"Data", "PlayerStats"}) do
-        local stats = Player:FindFirstChild(containerName)
-        if stats then
-            local flag = stats:FindFirstChild("BusoActive")
-                or stats:FindFirstChild("HakiActive")
-                or stats:FindFirstChild("Buso")
-                or stats:FindFirstChild("Haki")
-            if flag and flag:IsA("BoolValue") and flag.Value == true then
+    local function HasHakiBaselineDiff(char)
+        if not char or _hakiState.baselineChar ~= char then return false end
+        for limb, oldColor in pairs(_hakiState.limbColors) do
+            if limb and limb.Parent == char then
+                if colorDistance(limb.Color, oldColor) > 0.05 then
+                    return true
+                end
+                if limb.Material ~= _hakiState.limbMaterials[limb] then
+                    return true
+                end
+            end
+        end
+        for _, desc in ipairs(char:GetDescendants()) do
+            local dName = desc.Name
+            if dName ~= "KL_HoverBV" and dName ~= "KL_HoverBG" and dName ~= "KL_DungeonBV" and not isUnderTool(desc, char) then
+                if not _hakiState.visibleObjs[desc] then
+                    if ((desc:IsA("BasePart") or desc:IsA("MeshPart") or desc:IsA("UnionOperation")
+                        or desc:IsA("Decal") or desc:IsA("Texture")) and desc.Transparency < 0.95)
+                        or ((desc:IsA("Highlight") or desc:IsA("ParticleEmitter")) and desc.Enabled) then
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    local function GetHakiRemotes()
+        if _hakiState.remotes then return _hakiState.remotes end
+        _hakiState.remotes = {}
+        for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+            if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
+                local n = remote.Name:lower()
+                local isBuso = n:find("buso", 1, true) or n:find("armament", 1, true) or n:find("haki", 1, true)
+                local isExcluded = n:find("ken", 1, true) or n:find("observ", 1, true)
+                    or n:find("buy", 1, true) or n:find("shop", 1, true)
+                    or n:find("color", 1, true) or n:find("colour", 1, true)
+                    or n:find("dealer", 1, true) or n:find("quest", 1, true)
+                    or n:find("stat", 1, true) or n:find("upgrade", 1, true)
+                    or n:find("reroll", 1, true) or n:find("conquer", 1, true)
+                    or n:find("hao", 1, true)
+                if isBuso and not isExcluded then
+                    table.insert(_hakiState.remotes, remote)
+                end
+            end
+        end
+        return _hakiState.remotes
+    end
+
+    IsHakiActive = function(char)
+        if not char then return false end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then
+            if _hakiState.activatedChar == char then
+                _hakiState.activatedChar = nil
+            end
+            return false
+        end
+
+        local services = char:FindFirstChild("Services")
+        local hakiVal = services and services:FindFirstChild("Haki")
+        if hakiVal and (hakiVal:IsA("IntValue") or hakiVal:IsA("NumberValue")) then
+            _hakiState.detectSupported = true
+            if hakiVal.Value >= 1 then
+                _hakiState.activatedChar = char
+                return true
+            end
+            if _hakiState.activatedChar == char then
+                _hakiState.activatedChar = nil
+            end
+            return false
+        end
+
+        if CheckPositiveHakiIndicators(char) or (_hakiState.baselineChar == char and HasHakiBaselineDiff(char)) then
+            _hakiState.activatedChar = char
+            _hakiState.detectSupported = true
+            return true
+        end
+
+        if _hakiState.activatedChar == char then
+            if (tick() - _hakiState.activatedTime) < 4.0 then
+                return true
+            end
+            if not _hakiState.detectSupported then
                 return true
             end
         end
+
+        return false
     end
 
-    return false
-end
+    ActivateHaki = function()
+        if _hakiState.activating then return end
+        local char = Player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not char or not hum or hum.Health <= 0 then return end
+        if IsHakiActive(char) then return end
+        if _hakiState.lastAttemptChar == char and (tick() - (_hakiState.lastAttemptTime or 0)) < 2.5 then
+            return
+        end
 
-ActivateHaki = function()
-    local char = Player.Character
-    if not char or IsHakiActive(char) then return end
+        _hakiState.activating = true
+        _hakiState.lastAttemptChar = char
+        _hakiState.lastAttemptTime = tick()
+        _hakiLastCheck = tick()
 
-    for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
-        if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
-            local n = remote.Name:lower()
-            if n:find("buso") or n:find("haki") or n:find("armament") then
+        if _hakiState.baselineChar ~= char then
+            CaptureHakiBaseline(char)
+        end
+
+        local detected = false
+
+        -- Primary: Official King Legacy Armament remote
+        local chest = ReplicatedStorage:FindFirstChild("Chest")
+        local remotes = chest and chest:FindFirstChild("Remotes")
+        local events = remotes and remotes:FindFirstChild("Events")
+        local armament = events and events:FindFirstChild("Armament")
+        if armament then
+            pcall(function()
+                local stats = Player:FindFirstChild("PlayerStats")
+                local busoVal = stats and stats:FindFirstChild("BusoShopValue")
+                if busoVal and busoVal:IsA("StringValue") then
+                    busoVal.Value = "BusoHaki"
+                end
+                armament:FireServer()
+            end)
+            task.wait(0.4)
+            if IsHakiActive(char) or CheckPositiveHakiIndicators(char) or HasHakiBaselineDiff(char) then
+                detected = true
+            end
+        end
+
+        -- Fallback 1: Hotkey
+        if not detected and not UIS:GetFocusedTextBox() then
+            local keyCode = Enum.KeyCode[Settings.HakiKey] or Enum.KeyCode.G
+            pcall(function()
+                VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+                task.wait(0.05)
+                VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+            end)
+            task.wait(0.55)
+            if IsHakiActive(char) or CheckPositiveHakiIndicators(char) or HasHakiBaselineDiff(char) then
+                detected = true
+            end
+        end
+
+        -- Fallback 2: Scanned Buso remotes
+        if not detected then
+            for _, remote in ipairs(GetHakiRemotes()) do
                 pcall(function()
                     if remote:IsA("RemoteEvent") then
                         remote:FireServer()
@@ -899,19 +1886,23 @@ ActivateHaki = function()
                         remote:InvokeServer()
                     end
                 end)
-                task.wait(0.15)
-                if IsHakiActive(char) then return end
+                task.wait(0.35)
+                if IsHakiActive(char) or CheckPositiveHakiIndicators(char) or HasHakiBaselineDiff(char) then
+                    detected = true
+                    break
+                end
             end
         end
-    end
 
-    if not IsHakiActive(char) and not UIS:GetFocusedTextBox() then
-        local keyCode = Enum.KeyCode[Settings.HakiKey] or Enum.KeyCode.G
-        pcall(function()
-            VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-            task.wait(0.05)
-            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
-        end)
+        if detected or not (char:FindFirstChild("Services") and char.Services:FindFirstChild("Haki")) then
+            _hakiState.activatedChar = char
+            _hakiState.activatedTime = tick()
+        end
+        if detected then
+            _hakiState.detectSupported = true
+        end
+        _hakiLastCheck = tick()
+        _hakiState.activating = false
     end
 end
 
@@ -920,9 +1911,12 @@ end
 -- =====================================================
 local function BringMobs(mobName, anchorPos)
     if not Settings.BringMob then return 0 end
+    Character = Player.Character
+    HumanoidRootPart = Character and Character:FindFirstChild("HumanoidRootPart")
     if not HumanoidRootPart or not HumanoidRootPart.Parent then return 0 end
 
-    local mobs = FindAllMobs(mobName, Settings.BringRange)
+    local bringLimit = math.min(Settings.BringRange or 350, 350)
+    local mobs = FindAllMobs(mobName, math.max(Settings.BringRange or 500, 500))
     local playerPos = HumanoidRootPart.Position
     local isHovering = HumanoidRootPart:FindFirstChild("KL_HoverBV") ~= nil
     local centerPos = anchorPos or Vector3.new(
@@ -931,26 +1925,39 @@ local function BringMobs(mobName, anchorPos)
         playerPos.Z
     )
 
+    local now = tick()
+    if (now - (_hakiState.lastSimTick or 0)) >= 2.0 then
+        _hakiState.lastSimTick = now
+        if typeof(sethiddenproperty) == "function" then
+            pcall(sethiddenproperty, Player, "SimulationRadius", math.huge)
+        end
+    end
+
     local brought = 0
     for _, mob in ipairs(mobs) do
+        if brought >= 10 then break end
         pcall(function()
             local root = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
             local hum = mob:FindFirstChildOfClass("Humanoid")
             if root and hum and hum.Health > 0 then
-                for _, part in ipairs(mob:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
+                local dist = (root.Position - centerPos).Magnitude
+                if dist <= bringLimit then
+                    if dist > 2 then
+                        root.CFrame = CFrame.new(centerPos)
                     end
+                    hum.WalkSpeed = 0
+                    hum.JumpPower = 0
+                    root.Size = Vector3.new(28, 28, 28)
+                    root.Transparency = 0.8
+                    root.CanCollide = false
+                    root.Velocity = Vector3.zero
+                    root.RotVelocity = Vector3.zero
+                    pcall(function()
+                        root.AssemblyLinearVelocity = Vector3.zero
+                        root.AssemblyAngularVelocity = Vector3.zero
+                    end)
+                    brought = brought + 1
                 end
-                root.CFrame = CFrame.new(centerPos)
-                root.Velocity = Vector3.zero
-                root.RotVelocity = Vector3.zero
-                pcall(function()
-                    root.AssemblyLinearVelocity = Vector3.zero
-                    root.AssemblyAngularVelocity = Vector3.zero
-                end)
-                pcall(function() hum:MoveTo(centerPos) end)
-                brought = brought + 1
             end
         end)
     end
@@ -963,27 +1970,40 @@ end
 -- =====================================================
 local function AttackMob(mob)
     if not mob or not mob.Parent then return false end
+    Character = Player.Character
+    HumanoidRootPart = Character and Character:FindFirstChild("HumanoidRootPart")
     local humanoid = mob:FindFirstChildOfClass("Humanoid")
     local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
     if not humanoid or humanoid.Health <= 0 or not rootPart then return false end
 
-    local mobPos = rootPart.Position
+    _hakiState.lastCombatTick = tick()
 
-    -- Hover above mob head + Lock character face toward mob
+    pcall(function()
+        rootPart.Size = Vector3.new(28, 28, 28)
+        rootPart.Transparency = 0.8
+        rootPart.CanCollide = false
+    end)
+
+    local mobPos = rootPart.Position
+    if typeof(getgenv) == "function" then
+        pcall(function() getgenv().PosMonSkill = rootPart.CFrame end)
+    end
+
+    -- Position relative to mob (Above / Beside / Lower) + Lock character face toward mob
     if Settings.HoverFarm then
-        local hoverPos = mobPos + Vector3.new(0, Settings.HoverHeight, 0)
-        EnableHoverLock(hoverPos, mobPos)
+        local offset = _hakiState.getHoverOffset and _hakiState.getHoverOffset() or Vector3.new(0, Settings.HoverHeight, 0)
+        local hoverPos = mobPos + offset
+        EnableHoverLock(hoverPos, mobPos, rootPart)
     else
         DisableHoverLock()
         if Settings.BringMob then
             if HumanoidRootPart and HumanoidRootPart.Parent then
-                HumanoidRootPart.CFrame = CFrame.lookAt(HumanoidRootPart.Position, mobPos)
+                HumanoidRootPart.CFrame = SafeLookAt(HumanoidRootPart.Position, mobPos)
             end
         else
             local targetCFrame = rootPart.CFrame * CFrame.new(0, 0, -Settings.AttackRange * 0.3)
             if HumanoidRootPart and HumanoidRootPart.Parent then
-                HumanoidRootPart.CFrame = targetCFrame
-                HumanoidRootPart.CFrame = CFrame.lookAt(HumanoidRootPart.Position, mobPos)
+                HumanoidRootPart.CFrame = SafeLookAt(targetCFrame.Position, mobPos)
             end
         end
     end
@@ -1002,29 +2022,47 @@ end
 -- AUTO REDEEM CODES
 -- =====================================================
 local KingLegacyCodes = {
-    "2MFAV", "Peodiz", "DinoxLive", "3xKT", "Update7",
-    "OwnerMeteor", "WELCOMETOKINGLEGACY", "FREESTATSRESET",
-    "2BVISITS", "1MLIKES", "PlayKingLegacyFor5Gems",
-    "Sub2Leepungg", "DRAGON", "KIORU", "3xEXP", "Update8",
+    "IslandQuestRepeat", "X100KSuccess", "FruitAwakeningTime", "Halloween2024",
+    "Update7.1", "DragonColorRefund", "PlayKingLegacyFor5Gems", "RainbowDragon",
+    "<3LEEPUNGG", "Update7.0.4", "SKGames", "PassiveMaster",
+    "InfernoKingAwaits", "Update7Release", "TelekinesisFruitPower", "EpicAdventure",
+    "WELCOMETOKINGLEGACY", "FREESTATSRESET", "DinoxLive", "2MFAV", "Peodiz",
 }
 
 local function RedeemCode(code)
     if not code or code == "" then return false end
-    local fired = false
-    for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
-        if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
-            local n = remote.Name:lower()
-            if n:find("code") or n:find("redeem") then
-                pcall(function()
-                    if remote:IsA("RemoteEvent") then
-                        remote:FireServer(code)
-                    else
-                        remote:InvokeServer(code)
-                    end
-                    fired = true
-                end)
+    local chest = ReplicatedStorage:FindFirstChild("Chest")
+    local remotes = chest and chest:FindFirstChild("Remotes")
+    local funcs = remotes and remotes:FindFirstChild("Functions")
+    local officialRedeem = funcs and funcs:FindFirstChild("redeemcode")
+    if officialRedeem and officialRedeem:IsA("RemoteFunction") then
+        local ok = pcall(function()
+            officialRedeem:InvokeServer(code)
+        end)
+        if ok then return true end
+    end
+
+    if not _hakiState.codeRemotes then
+        _hakiState.codeRemotes = {}
+        for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+            if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
+                local n = remote.Name:lower()
+                if n:find("code") or n:find("redeem") then
+                    table.insert(_hakiState.codeRemotes, remote)
+                end
             end
         end
+    end
+    local fired = false
+    for _, remote in ipairs(_hakiState.codeRemotes) do
+        pcall(function()
+            if remote:IsA("RemoteEvent") then
+                remote:FireServer(code)
+            else
+                remote:InvokeServer(code)
+            end
+            fired = true
+        end)
     end
     return fired
 end
@@ -1055,20 +2093,40 @@ task.spawn(function()
     while _running do
         if Settings.AutoStats and #Settings.StatsList > 0 then
             pcall(function()
-                for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
-                    if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
-                        local n = remote.Name:lower()
-                        if n:find("stat") or n:find("point") or n:find("addpoint") then
-                            for _, statName in ipairs(Settings.StatsList) do
-                                pcall(function()
-                                    if remote:IsA("RemoteEvent") then
-                                        remote:FireServer(statName, Settings.StatsPoints)
-                                    else
-                                        remote:InvokeServer(statName, Settings.StatsPoints)
-                                    end
-                                end)
+                local pg = Player:FindFirstChild("PlayerGui")
+                local mg = pg and pg:FindFirstChild("MainGui")
+                local sf = mg and mg:FindFirstChild("StarterFrame")
+                local statsFrame = sf and sf:FindFirstChild("StatsFrame")
+                local officialStatRemote = statsFrame and statsFrame:FindFirstChild("RemoteEvent")
+                if officialStatRemote and officialStatRemote:IsA("RemoteEvent") then
+                    for _, statName in ipairs(Settings.StatsList) do
+                        pcall(function()
+                            officialStatRemote:FireServer(statName, Settings.StatsPoints)
+                        end)
+                    end
+                    return
+                end
+
+                if not _hakiState.statRemotes then
+                    _hakiState.statRemotes = {}
+                    for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+                        if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
+                            local n = remote.Name:lower()
+                            if n:find("stat") or n:find("point") or n:find("addpoint") then
+                                table.insert(_hakiState.statRemotes, remote)
                             end
                         end
+                    end
+                end
+                for _, remote in ipairs(_hakiState.statRemotes) do
+                    for _, statName in ipairs(Settings.StatsList) do
+                        pcall(function()
+                            if remote:IsA("RemoteEvent") then
+                                remote:FireServer(statName, Settings.StatsPoints)
+                            else
+                                remote:InvokeServer(statName, Settings.StatsPoints)
+                            end
+                        end)
                     end
                 end
             end)
@@ -1149,33 +2207,51 @@ task.spawn(function()
         if Settings.AutoKenHaki then
             pcall(function()
                 local char = Player.Character
-                if char and not char:FindFirstChild("Ken") and not char:FindFirstChild("Observation") then
-                    for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
-                        if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
-                            local n = remote.Name:lower()
-                            if n:find("ken") or n:find("observation") then
-                                pcall(function()
-                                    if remote:IsA("RemoteEvent") then remote:FireServer() else remote:InvokeServer() end
-                                end)
-                                break
-                            end
-                        end
+                if not char then return end
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if not hum or hum.Health <= 0 then return end
+                local services = char:FindFirstChild("Services")
+                local kenObj = services and services:FindFirstChild("KenHaki")
+                local kenOff = false
+                if kenObj then
+                    if kenObj:IsA("BoolValue") then
+                        kenOff = not kenObj.Value
+                    elseif kenObj:IsA("IntValue") or kenObj:IsA("NumberValue") then
+                        kenOff = kenObj.Value == 0
+                    elseif kenObj:IsA("ValueBase") then
+                        kenOff = not kenObj.Value
                     end
+                else
+                    kenOff = not char:FindFirstChild("Ken") and not char:FindFirstChild("Observation")
+                end
+                if kenOff and not UIS:GetFocusedTextBox() and (tick() - (_hakiState.lastKenTick or 0)) >= 2.0 then
+                    _hakiState.lastKenTick = tick()
+                    pcall(function()
+                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Y, false, game)
+                        task.wait(0.05)
+                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Y, false, game)
+                    end)
                 end
             end)
         end
 
         if Settings.AutoRandomFruit then
             pcall(function()
-                for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
-                    if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
-                        local n = remote.Name:lower()
-                        if n:find("fruit") and (n:find("random") or n:find("gacha") or n:find("buy") or n:find("spin")) then
-                            pcall(function()
-                                if remote:IsA("RemoteEvent") then remote:FireServer() else remote:InvokeServer() end
-                            end)
+                if not _hakiState.gachaRemotes then
+                    _hakiState.gachaRemotes = {}
+                    for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+                        if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
+                            local n = remote.Name:lower()
+                            if n:find("fruit") and (n:find("random") or n:find("gacha") or n:find("buy") or n:find("spin")) then
+                                table.insert(_hakiState.gachaRemotes, remote)
+                            end
                         end
                     end
+                end
+                for _, remote in ipairs(_hakiState.gachaRemotes) do
+                    pcall(function()
+                        if remote:IsA("RemoteEvent") then remote:FireServer() else remote:InvokeServer() end
+                    end)
                 end
             end)
         end
@@ -1205,40 +2281,719 @@ task.spawn(function()
     end
 end)
 
--- Activities Loop (Dungeon / Raid, Sea Events, Ghost Ship)
-task.spawn(function()
-    while _running do
-        if Settings.AutoDungeon then
-            pcall(function()
-                for _, mob in ipairs(Workspace:GetDescendants()) do
-                    if not Settings.AutoDungeon or not _running then break end
-                    if mob:IsA("Model") and mob ~= Character and not Players:GetPlayerFromCharacter(mob) then
-                        local hum = mob:FindFirstChildOfClass("Humanoid")
-                        local root = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
-                        if hum and root and hum.Health > 0 and (mob.Name:lower():find("raid") or mob.Name:lower():find("dungeon") or Workspace:FindFirstChild("Dungeon")) then
-                            _farmStatus = "Raid/Dungeon: " .. mob.Name
-                            AttackMob(mob)
-                            task.wait(Settings.FarmDelay)
+-- Activities Loop (Full A-Z Auto Dungeon + Friends Co-op + Sea Events)
+do
+    local dState = {
+        activeTween = nil,
+        steppedConn = nil,
+        inCombatRange = false,
+        currentMob = nil,
+        evadingLowHP = false,
+        mobCache = nil,
+        mobCacheRoot = nil,
+        mobCacheTime = 0,
+        padCache = nil,
+        padCacheTime = 0,
+        origCanCollide = {},
+        wasActive = false,
+        waitingAnchor = nil,
+        friendCheckPending = {},
+    }
+
+    local npcExcludeFolders = {
+        AllNPC = true, NPCs = true, NPC = true, QuestNPCs = true, Shop = true, Shops = true,
+    }
+
+    local function isPlayerRobloxFriend(p, allowYield)
+        if not p or p == Player then return false end
+        local uid = p.UserId
+        local cached = _hakiState.friendCache[uid]
+        if cached ~= nil then
+            return cached
+        end
+        if allowYield then
+            local ok, res = pcall(function() return Player:IsFriendsWith(uid) end)
+            cached = (ok and res == true) or false
+            _hakiState.friendCache[uid] = cached
+            return cached
+        elseif not dState.friendCheckPending[uid] then
+            dState.friendCheckPending[uid] = true
+            task.spawn(function()
+                local ok, res = pcall(function() return Player:IsFriendsWith(uid) end)
+                _hakiState.friendCache[uid] = (ok and res == true) or false
+                dState.friendCheckPending[uid] = nil
+            end)
+        end
+        return false
+    end
+
+    local function stripFriendTag(name)
+        return tostring(name or ""):gsub("%s*%[Friend%]$", "")
+    end
+
+    local function parseDungeonFriends(val)
+        local list = {}
+        local seen = {}
+        local function addName(raw)
+            local clean = stripFriendTag(raw):match("^%s*(.-)%s*$")
+            if clean and clean ~= "" and clean ~= "None" and not seen[clean] then
+                seen[clean] = true
+                table.insert(list, clean)
+            end
+        end
+        if type(val) == "string" then
+            addName(val)
+        elseif type(val) == "table" then
+            for k, v in pairs(val) do
+                if type(k) == "number" and type(v) == "string" then
+                    addName(v)
+                elseif type(k) == "string" and v == true then
+                    addName(k)
+                end
+            end
+        end
+        return list
+    end
+    _hakiState.parseDungeonFriends = parseDungeonFriends
+
+    local function getDungeonFriendList()
+        local friendEntries, otherEntries = {}, {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= Player then
+                if isPlayerRobloxFriend(p, true) then
+                    table.insert(friendEntries, p.Name .. " [Friend]")
+                else
+                    table.insert(otherEntries, p.Name)
+                end
+            end
+        end
+        table.sort(friendEntries)
+        table.sort(otherEntries)
+        local merged = {}
+        for _, v in ipairs(friendEntries) do table.insert(merged, v) end
+        for _, v in ipairs(otherEntries) do table.insert(merged, v) end
+        if #merged == 0 then
+            return {"None"}
+        end
+        return merged
+    end
+    _hakiState.getDungeonFriendList = getDungeonFriendList
+
+    local function getActiveDungeonFriendTargets()
+        local targets = {}
+        local seen = {}
+
+        if type(Settings.DungeonFriends) == "table" then
+            for _, uname in ipairs(Settings.DungeonFriends) do
+                local clean = stripFriendTag(uname)
+                if clean ~= "" and clean ~= "None" and not seen[clean] then
+                    local p = Players:FindFirstChild(clean)
+                    if p and p ~= Player then
+                        seen[clean] = true
+                        table.insert(targets, p)
+                    end
+                end
+            end
+        end
+
+        if Settings.DungeonPartner and Settings.DungeonPartner ~= "" and Settings.DungeonPartner ~= "None" then
+            local clean = stripFriendTag(Settings.DungeonPartner)
+            if not seen[clean] then
+                local p = Players:FindFirstChild(clean)
+                if p and p ~= Player then
+                    seen[clean] = true
+                    table.insert(targets, p)
+                end
+            end
+        end
+
+        if Settings.DungeonAutoFriends then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= Player and not seen[p.Name] and isPlayerRobloxFriend(p, false) then
+                    seen[p.Name] = true
+                    table.insert(targets, p)
+                end
+            end
+        end
+
+        return targets
+    end
+
+    local function getDungeonFriendSummary()
+        if not Settings.DungeonPartnerMode then
+            return "OFF (Solo)"
+        end
+        local targets = getActiveDungeonFriendTargets()
+        if #targets == 0 then
+            return Settings.DungeonAutoFriends and "ON (No friends online)" or "ON (No friend selected)"
+        end
+        local names = {}
+        for i, p in ipairs(targets) do
+            if i <= 2 then
+                table.insert(names, p.Name)
+            end
+        end
+        if #targets > 2 then
+            return string.format("ON (%s +%d)", table.concat(names, ", "), #targets - 2)
+        end
+        return string.format("ON (%s)", table.concat(names, ", "))
+    end
+    _hakiState.getDungeonFriendSummary = getDungeonFriendSummary
+
+    local function cleanupDungeon()
+        pcall(function()
+            if dState.activeTween then
+                dState.activeTween:Cancel()
+                dState.activeTween = nil
+            end
+        end)
+        dState.inCombatRange = false
+        dState.currentMob = nil
+        dState.mobCache = nil
+        dState.mobCacheRoot = nil
+        dState.mobCacheTime = 0
+        dState.evadingLowHP = false
+        dState.waitingAnchor = nil
+        if typeof(getgenv) == "function" then
+            pcall(function() getgenv().PosMonSkill = nil end)
+        end
+
+        local char = Player.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local bv = hrp:FindFirstChild("KL_DungeonBV")
+                if bv then bv:Destroy() end
+            end
+            for _, partName in ipairs({"HumanoidRootPart", "Torso", "UpperTorso", "LowerTorso", "Head"}) do
+                local p = char:FindFirstChild(partName)
+                if p and p:IsA("BasePart") then
+                    p.CanCollide = true
+                end
+            end
+        end
+        for part, orig in pairs(dState.origCanCollide) do
+            if part and part.Parent then
+                pcall(function() part.CanCollide = orig end)
+            end
+        end
+        dState.origCanCollide = {}
+        Settings.DungeonStatus = "Idle"
+    end
+    Settings.CleanupDungeon = cleanupDungeon
+
+    _hakiState.dungeonOnRespawn = function()
+        pcall(function()
+            if dState.activeTween then
+                dState.activeTween:Cancel()
+                dState.activeTween = nil
+            end
+        end)
+        dState.inCombatRange = false
+        dState.currentMob = nil
+        dState.mobCache = nil
+        dState.mobCacheRoot = nil
+        dState.evadingLowHP = false
+        dState.origCanCollide = {}
+    end
+
+    local function isShopOrNpcModel(model)
+        local n = model.Name:lower()
+        return n:find("quest", 1, true)
+            or n:find("dealer", 1, true)
+            or n:find("shop", 1, true)
+            or n:find("gacha", 1, true)
+            or n:find("merchant", 1, true)
+    end
+
+    local function isUnderBlacklistedFolder(inst)
+        local cur = inst.Parent
+        while cur and cur ~= Workspace do
+            if npcExcludeFolders[cur.Name] then
+                return true
+            end
+            cur = cur.Parent
+        end
+        return false
+    end
+
+    local function scanDungeonMobFolder(container, char, best, maxDepth, depth)
+        depth = depth or 0
+        if not container or npcExcludeFolders[container.Name] then return end
+        for _, child in ipairs(container:GetChildren()) do
+            if child:IsA("Model") then
+                if child ~= char and not Players:GetPlayerFromCharacter(child)
+                    and not isUnderBlacklistedFolder(child) and not isShopOrNpcModel(child) then
+                    local hum = child:FindFirstChildOfClass("Humanoid")
+                    local root = child:FindFirstChild("HumanoidRootPart") or child.PrimaryPart
+                    if hum and root and hum.Health > 0 then
+                        local dist = (root.Position - best.origin).Magnitude
+                        if dist < best.dist then
+                            best.mob = child
+                            best.root = root
+                            best.dist = dist
                         end
                     end
                 end
-            end)
+            elseif depth < (maxDepth or 1) and (child:IsA("Folder") or child:IsA("Configuration")) and not npcExcludeFolders[child.Name] then
+                scanDungeonMobFolder(child, char, best, maxDepth, depth + 1)
+            end
         end
-        if Settings.AutoSeaEvent and not _sea2EventActive then
-            pcall(function()
-                for _, obj in ipairs(Workspace:GetDescendants()) do
-                    if not Settings.AutoSeaEvent or _sea2EventActive or not _running then break end
-                    if obj:IsA("Model") then
-                        local n = obj.Name:lower()
-                        local isSea = n:find("sea king") or n:find("hydra") or n:find("kraken") or n:find("seabeast")
-                        if isSea then
-                            local hum = obj:FindFirstChildOfClass("Humanoid")
-                            if hum and hum.Health > 0 then
-                                _farmStatus = "Sea Event: " .. obj.Name
-                                AttackMob(obj)
+    end
+
+    local function GetClosestDungeonMob()
+        local char = Player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not char or not hrp then return nil, nil, math.huge end
+
+        local now = tick()
+        if dState.mobCache and dState.mobCache.Parent and dState.mobCacheRoot and dState.mobCacheRoot.Parent then
+            local hum = dState.mobCache:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 and (now - dState.mobCacheTime) < 0.2 then
+                return dState.mobCache, dState.mobCacheRoot, (dState.mobCacheRoot.Position - hrp.Position).Magnitude
+            end
+        end
+
+        local best = {mob = nil, root = nil, dist = math.huge, origin = hrp.Position}
+        for _, folderName in ipairs({"MOB", "Monster", "Monsters", "Mobs", "Enemies", "Dungeon", "Raid"}) do
+            local folder = Workspace:FindFirstChild(folderName)
+            if folder then
+                scanDungeonMobFolder(folder, char, best, 2, 0)
+            end
+        end
+        if not best.mob then
+            scanDungeonMobFolder(Workspace, char, best, 1, 0)
+        end
+
+        dState.mobCache = best.mob
+        dState.mobCacheRoot = best.root
+        dState.mobCacheTime = now
+        return best.mob, best.root, best.dist
+    end
+
+    local function getDungeonValidCombatTools(char)
+        local customList = Settings.DungeonWeapons
+        if type(customList) == "table" and #customList > 0 then
+            local tools = {}
+            for _, name in ipairs(customList) do
+                local t = char:FindFirstChild(name) or Player.Backpack:FindFirstChild(name)
+                if t and t:IsA("Tool") then
+                    table.insert(tools, t)
+                end
+            end
+            if #tools > 0 then
+                return tools
+            end
+        end
+        return GetCombatTools(char)
+    end
+
+    local function FindDungeonPad()
+        local char = Player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local diffLower = (Settings.DungeonMode or Settings.DungeonDifficulty or "Normal"):lower()
+        local matchDiff = diffLower ~= "all / auto" and diffLower ~= ""
+
+        local now = tick()
+        local bestPad = nil
+        if dState.padCache and dState.padCache.Parent and dState.padCacheMode == diffLower and (now - dState.padCacheTime) < 1.5 then
+            bestPad = dState.padCache
+        else
+            local bestScore = -math.huge
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj:IsA("BasePart") then
+                    local hasTouch = obj:FindFirstChildOfClass("TouchTransmitter") ~= nil
+                    local pName = obj.Name:lower()
+                    local parName = obj.Parent and obj.Parent.Name:lower() or ""
+                    local gName = (obj.Parent and obj.Parent.Parent) and obj.Parent.Parent.Name:lower() or ""
+                    local combined = pName .. " " .. parName .. " " .. gName
+
+                    local isDungeonCtx = combined:find("dungeon", 1, true)
+                        or combined:find("raid", 1, true)
+                        or combined:find("lobby", 1, true)
+                        or combined:find("pad", 1, true)
+                        or combined:find("portal", 1, true)
+                        or combined:find("gate", 1, true)
+                        or combined:find("start", 1, true)
+
+                    if (hasTouch and isDungeonCtx) or (isDungeonCtx and (combined:find("dungeon", 1, true) or combined:find("raid", 1, true))) then
+                        local score = 10
+                        if hasTouch then score = score + 50 end
+                        if combined:find("dungeon", 1, true) or combined:find("raid", 1, true) then score = score + 30 end
+                        if combined:find("pad", 1, true) or combined:find("portal", 1, true) or combined:find("start", 1, true) then score = score + 20 end
+                        if matchDiff and combined:find(diffLower, 1, true) then score = score + 100 end
+                        if hrp then
+                            score = score - ((obj.Position - hrp.Position).Magnitude * 0.001)
+                        end
+                        if score > bestScore then
+                            bestScore = score
+                            bestPad = obj
+                        end
+                    end
+                end
+            end
+            dState.padCache = bestPad
+            dState.padCacheMode = diffLower
+            dState.padCacheTime = now
+        end
+
+        if Settings.DungeonPartnerMode then
+            local manualSet = {}
+            if type(Settings.DungeonFriends) == "table" then
+                for _, uname in ipairs(Settings.DungeonFriends) do
+                    manualSet[stripFriendTag(uname)] = true
+                end
+            end
+            if Settings.DungeonPartner and Settings.DungeonPartner ~= "" then
+                manualSet[stripFriendTag(Settings.DungeonPartner)] = true
+            end
+
+            local activeFriends = getActiveDungeonFriendTargets()
+            local bestFriendRoot, bestFriendName = nil, nil
+            local bestScore = -math.huge
+            for _, friendPlayer in ipairs(activeFriends) do
+                local fChar = friendPlayer.Character
+                local fHum = fChar and fChar:FindFirstChildOfClass("Humanoid")
+                local fRoot = fChar and fChar:FindFirstChild("HumanoidRootPart")
+                if fHum and fHum.Health > 0 and fRoot then
+                    local distFromMe = hrp and (fRoot.Position - hrp.Position).Magnitude or 0
+                    local distToPad = bestPad and (fRoot.Position - bestPad.Position).Magnitude or math.huge
+                    local isManual = manualSet[friendPlayer.Name] == true
+                    local nearPad = bestPad and (distToPad <= 150)
+                    local eligible = nearPad or (isManual and distFromMe <= 2000) or (distFromMe <= 450)
+                    if eligible then
+                        local score = (nearPad and 1000 or 0) + (isManual and 500 or 0) - (distFromMe * 0.01)
+                        if score > bestScore then
+                            bestScore = score
+                            bestFriendRoot = fRoot
+                            bestFriendName = friendPlayer.Name
+                        end
+                    end
+                end
+            end
+            if bestFriendRoot then
+                return bestFriendRoot, true, bestFriendName
+            end
+        end
+
+        return bestPad, false, nil
+    end
+
+    local function TweenToCFrame(hrp, targetCF)
+        local speed = Settings.DungeonTweenSpeed or 280
+        local dist = (hrp.Position - targetCF.Position).Magnitude
+        if dist < 8 then
+            if dState.activeTween then
+                pcall(function() dState.activeTween:Cancel() end)
+                dState.activeTween = nil
+            end
+            hrp.CFrame = targetCF
+        else
+            if dState.activeTween then
+                pcall(function() dState.activeTween:Cancel() end)
+            end
+            local duration = math.max(dist / speed, 0.03)
+            local tw = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCF})
+            dState.activeTween = tw
+            tw:Play()
+        end
+    end
+
+    dState.steppedConn = RunService.Stepped:Connect(function()
+        if not _running then
+            if dState.wasActive then
+                dState.wasActive = false
+                cleanupDungeon()
+            end
+            if dState.steppedConn then
+                dState.steppedConn:Disconnect()
+                dState.steppedConn = nil
+            end
+            return
+        end
+
+        if not Settings.AutoDungeon then
+            if dState.wasActive then
+                dState.wasActive = false
+                cleanupDungeon()
+            end
+            return
+        end
+
+        dState.wasActive = true
+        local char = Player.Character
+        if not char then return end
+        for _, part in ipairs(char:GetChildren()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                if dState.origCanCollide[part] == nil then
+                    dState.origCanCollide[part] = true
+                end
+                part.CanCollide = false
+            end
+        end
+
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local hb = hrp:FindFirstChild("KL_HoverBV")
+            if hb then hb:Destroy() end
+            local hg = hrp:FindFirstChild("KL_HoverBG")
+            if hg then hg:Destroy() end
+
+            local bv = hrp:FindFirstChild("KL_DungeonBV")
+            if not bv then
+                bv = Instance.new("BodyVelocity")
+                bv.Name = "KL_DungeonBV"
+                bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+                bv.P = 1250
+                bv.Velocity = Vector3.zero
+                bv.Parent = hrp
+            else
+                bv.Velocity = Vector3.zero
+            end
+        end
+    end)
+
+    -- Main Auto Dungeon A-Z Loop
+    task.spawn(function()
+        while _running do
+            if Settings.AutoDungeon then
+                pcall(function()
+                    local char = Player.Character
+                    local hum = char and char:FindFirstChildOfClass("Humanoid")
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if not char or not hum or hum.Health <= 0 or not hrp then
+                        dState.inCombatRange = false
+                        return
+                    end
+
+                    local playMode = Settings.DungeonPlayMode or "Hover Above (Tween)"
+                    local lowThreshold = Settings.DungeonLowHPThreshold or 0.25
+                    if playMode == "Safe Evasion" then
+                        lowThreshold = math.max(lowThreshold, 0.40)
+                    end
+                    local recThreshold = Settings.DungeonRecoveryHPThreshold or 0.55
+
+                    local hpRatio = hum.MaxHealth > 0 and (hum.Health / hum.MaxHealth) or 1
+                    if lowThreshold > 0 and hpRatio < lowThreshold then
+                        dState.evadingLowHP = true
+                    elseif hpRatio >= recThreshold or lowThreshold <= 0 then
+                        dState.evadingLowHP = false
+                    end
+
+                    local mob, mobRoot = GetClosestDungeonMob()
+                    if mob and mobRoot then
+                        dState.currentMob = mob
+                        dState.waitingAnchor = mobRoot.Position
+                        if typeof(getgenv) == "function" then
+                            pcall(function() getgenv().PosMonSkill = mobRoot.CFrame end)
+                        end
+
+                        pcall(function()
+                            local hb = Settings.DungeonHitboxSize or 30
+                            mobRoot.Size = Vector3.new(hb, hb, hb)
+                            mobRoot.Transparency = 0.8
+                            mobRoot.CanCollide = false
+                        end)
+
+                        local safeH = Settings.DungeonSafeHoverHeight or 65
+                        local hoverH = Settings.DungeonHoverHeight or 14
+                        if playMode == "Safe Evasion" and not dState.evadingLowHP then
+                            hoverH = math.max(hoverH, 22)
+                        end
+
+                        local targetCF
+                        if dState.evadingLowHP then
+                            local hoverPos = mobRoot.Position + Vector3.new(0, safeH, 0.35)
+                            targetCF = SafeLookAt(hoverPos, mobRoot.Position)
+                        elseif playMode == "Behind Target" then
+                            local behindPos = (mobRoot.CFrame * CFrame.new(0, 4, 8)).Position
+                            targetCF = SafeLookAt(behindPos, mobRoot.Position)
+                        else
+                            local hoverPos = mobRoot.Position + Vector3.new(0, hoverH, 0.35)
+                            targetCF = SafeLookAt(hoverPos, mobRoot.Position)
+                        end
+                        TweenToCFrame(hrp, targetCF)
+
+                        local actualDist = (hrp.Position - mobRoot.Position).Magnitude
+                        dState.inCombatRange = (not dState.evadingLowHP) and (actualDist < (Settings.DungeonCombatRange or 35))
+                        Settings.DungeonStatus = (dState.evadingLowHP and ("Low HP Evading (" .. safeH .. "s): ") or "Fighting: ") .. mob.Name
+                    else
+                        dState.inCombatRange = false
+                        dState.currentMob = nil
+                        if typeof(getgenv) == "function" then
+                            pcall(function() getgenv().PosMonSkill = nil end)
+                        end
+
+                        local pad, isFriend, friendName = FindDungeonPad()
+                        if pad and pad.Parent then
+                            if isFriend then
+                                local targetPos = (pad.CFrame * CFrame.new(0, 1.5, -2.5)).Position
+                                TweenToCFrame(hrp, SafeLookAt(targetPos, pad.Position))
+                                Settings.DungeonStatus = "Friends Co-op: With " .. tostring(friendName)
+                            else
+                                TweenToCFrame(hrp, pad.CFrame + Vector3.new(0, 2.5, 0))
+                                Settings.DungeonStatus = "Entering Pad (" .. (Settings.DungeonMode or "Normal") .. "): " .. pad.Name
+                            end
+                        else
+                            if not dState.waitingAnchor or (hrp.Position - dState.waitingAnchor).Magnitude > 400 then
+                                dState.waitingAnchor = hrp.Position
+                            end
+                            local safeWaitPos = dState.waitingAnchor + Vector3.new(0, 20, 0)
+                            TweenToCFrame(hrp, CFrame.new(safeWaitPos))
+                            Settings.DungeonStatus = "Waiting for next Wave / Dungeon..."
+                        end
+                    end
+                end)
+                task.wait(0.08)
+            else
+                task.wait(0.3)
+            end
+        end
+    end)
+
+    -- Combat Thread 1: Auto Buso Haki (only turns ON when OFF)
+    task.spawn(function()
+        while _running do
+            if Settings.AutoDungeon and dState.inCombatRange and Settings.AutoHaki then
+                pcall(function()
+                    local char = Player.Character
+                    if char and not IsHakiActive(char) then
+                        ActivateHaki()
+                    end
+                end)
+            end
+            task.wait(2.5)
+        end
+    end)
+
+    -- Combat Thread 2: Auto M1 (0.13s headless Tool API + SkillAction Remote + VirtualUser fallback)
+    task.spawn(function()
+        local skillActionRemote = nil
+        local skillActionChecked = false
+        local m1RemoteBusy = false
+        local m1RemoteBusySince = 0
+
+        while _running do
+            if Settings.AutoDungeon and dState.inCombatRange then
+                pcall(function()
+                    local char = Player.Character
+                    local tool = char and char:FindFirstChildOfClass("Tool")
+                    if tool then
+                        pcall(function() tool.ManualActivationOnly = false end)
+                        tool:Activate()
+                        task.delay(0.02, function()
+                            pcall(function()
+                                if tool and tool.Parent == char then
+                                    tool:Deactivate()
+                                end
+                            end)
+                        end)
+
+                        if not skillActionChecked then
+                            skillActionChecked = true
+                            local chest = ReplicatedStorage:FindFirstChild("Chest")
+                            local remotes = chest and chest:FindFirstChild("Remotes")
+                            local funcs = remotes and remotes:FindFirstChild("Functions")
+                            skillActionRemote = funcs and funcs:FindFirstChild("SkillAction")
+                        end
+                        if skillActionRemote and (not m1RemoteBusy or (tick() - m1RemoteBusySince) > 1.5) then
+                            m1RemoteBusy = true
+                            m1RemoteBusySince = tick()
+                            local tip = tool.ToolTip
+                            local prefix = (tip == "Sword" and "SW") or (tip == "Fruit Power" and "FP") or "FS"
+                            local actionName = prefix .. "_" .. tool.Name .. "_M1"
+                            task.spawn(function()
+                                pcall(function()
+                                    skillActionRemote:InvokeServer(actionName)
+                                end)
+                                m1RemoteBusy = false
+                            end)
+                        end
+                    end
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton1(Vector2.new(9999, 9999))
+                end)
+            end
+            task.wait(Settings.DungeonM1Delay or 0.13)
+        end
+    end)
+
+    -- Combat Thread 3: Weapon Cycle (0.3s) & Skill Burst Z X C V B
+    local dungeonSkillKeys = {
+        Enum.KeyCode.Z, Enum.KeyCode.X, Enum.KeyCode.C,
+        Enum.KeyCode.V, Enum.KeyCode.B,
+    }
+    task.spawn(function()
+        local weaponIdx = 1
+        while _running do
+            if Settings.AutoDungeon and dState.inCombatRange then
+                pcall(function()
+                    local char = Player.Character
+                    local hum = char and char:FindFirstChildOfClass("Humanoid")
+                    if char and hum and hum.Health > 0 then
+                        local tools = getDungeonValidCombatTools(char)
+                        if #tools > 0 then
+                            if weaponIdx > #tools then weaponIdx = 1 end
+                            local tool = tools[weaponIdx]
+                            weaponIdx = weaponIdx + 1
+                            if tool and tool.Parent ~= char then
+                                hum:EquipTool(tool)
+                                task.wait(Settings.DungeonEquipSettleDelay or 0.06)
+                            end
+                            if not UIS:GetFocusedTextBox() then
+                                for _, key in ipairs(dungeonSkillKeys) do
+                                    if not Settings.AutoDungeon or not dState.inCombatRange then break end
+                                    task.spawn(function()
+                                        VirtualInputManager:SendKeyEvent(true, key, false, game)
+                                        task.wait(0.02)
+                                        VirtualInputManager:SendKeyEvent(false, key, false, game)
+                                    end)
+                                end
                             end
                         end
                     end
+                end)
+            end
+            task.wait(Settings.DungeonWeaponSwapDelay or 0.3)
+        end
+    end)
+end
+
+-- Sea Event Loop
+task.spawn(function()
+    while _running do
+        if Settings.AutoSeaEvent and not _sea2EventActive and not Settings.AutoDungeon then
+            pcall(function()
+                local foundTarget = nil
+                for _, entry in ipairs(GetLivingMobs()) do
+                    local n = entry.lname
+                    if n:find("sea king", 1, true) or n:find("hydra", 1, true) or n:find("kraken", 1, true) or n:find("seabeast", 1, true) or n:find("sea beast", 1, true) then
+                        foundTarget = entry.mob
+                        break
+                    end
+                end
+                if not foundTarget then
+                    for _, folder in ipairs({Workspace:FindFirstChild("SeaMonster"), Workspace:FindFirstChild("SeaMonsters"), Workspace:FindFirstChild("Bosses"), Workspace}) do
+                        if folder then
+                            for _, obj in ipairs(folder:GetChildren()) do
+                                if obj:IsA("Model") and obj ~= Character and not Players:GetPlayerFromCharacter(obj) then
+                                    local n = obj.Name:lower()
+                                    if n:find("sea king", 1, true) or n:find("hydra", 1, true) or n:find("kraken", 1, true) or n:find("seabeast", 1, true) or n:find("sea beast", 1, true) then
+                                        local hum = obj:FindFirstChildOfClass("Humanoid")
+                                        if hum and hum.Health > 0 then
+                                            foundTarget = obj
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        if foundTarget then break end
+                    end
+                end
+                if foundTarget then
+                    _farmStatus = "Sea Event: " .. foundTarget.Name
+                    AttackMob(foundTarget)
                 end
             end)
         end
@@ -1270,10 +3025,47 @@ local function BuyFromShop(itemName)
 end
 
 local function TravelToSea(seaNum)
+    -- Try official Sea travel NPCs first (Elite Pirate / Traveler / The Squid)
+    local npcPriority
+    if seaNum == 1 then
+        npcPriority = {"Elite Pirate", "Traveler"}
+    elseif seaNum == 2 then
+        npcPriority = {"Traveler", "Elite Pirate"}
+    else
+        npcPriority = {"The Squid", "Elite Pirate"}
+    end
+
+    local allNPC = Workspace:FindFirstChild("AllNPC")
+    if allNPC then
+        for _, npcName in ipairs(npcPriority) do
+            local npc = allNPC:FindFirstChild(npcName)
+            if npc then
+                local root = npc:IsA("BasePart") and npc or (npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChildOfClass("BasePart"))
+                if root then
+                    DisableHoverLock()
+                    FastTeleport(root.CFrame + Vector3.new(0, 3, 2), true)
+                    task.wait(0.15)
+                    InteractWithNPC(npc.Name)
+                    break
+                end
+            end
+        end
+    end
+
+    local chest = ReplicatedStorage:FindFirstChild("Chest")
+    local remotes = chest and chest:FindFirstChild("Remotes")
+    local funcs = remotes and remotes:FindFirstChild("Functions")
+    local etcFn = funcs and funcs:FindFirstChild("EtcFunction")
+    if etcFn and etcFn:IsA("RemoteFunction") then
+        pcall(function()
+            etcFn:InvokeServer("Travel", seaNum)
+        end)
+    end
+
     for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
         if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
             local n = remote.Name:lower()
-            if n:find("sea") or n:find("travel") or n:find("teleport") or n:find("world") then
+            if n:find("sea") or n:find("travel") or n:find("world") then
                 pcall(function()
                     if remote:IsA("RemoteEvent") then
                         remote:FireServer(seaNum)
@@ -1381,18 +3173,22 @@ local function FormatTimeMMSS(sec)
 end
 
 local function FindSeaMonsterByKeywords(keywords)
+    for _, entry in ipairs(GetLivingMobs()) do
+        for _, kw in ipairs(keywords) do
+            if entry.lname:find(kw, 1, true) then
+                return entry.mob
+            end
+        end
+    end
     local containers = {
         Workspace:FindFirstChild("SeaMonster"),
         Workspace:FindFirstChild("SeaMonsters"),
         Workspace:FindFirstChild("Bosses"),
-        Workspace:FindFirstChild("Mobs"),
-        Workspace:FindFirstChild("Enemies"),
-        Workspace
+        Workspace,
     }
     for _, folder in ipairs(containers) do
         if folder then
-            local list = (folder == Workspace) and Workspace:GetDescendants() or folder:GetChildren()
-            for _, obj in ipairs(list) do
+            for _, obj in ipairs(folder:GetChildren()) do
                 if obj:IsA("Model") and obj ~= Character and not Players:GetPlayerFromCharacter(obj) then
                     local lname = obj.Name:lower()
                     for _, kw in ipairs(keywords) do
@@ -1426,7 +3222,7 @@ end
 local function GetShipHealth(model)
     local hum = model:FindFirstChildOfClass("Humanoid")
     if hum then return hum.Health end
-    for _, child in ipairs(model:GetDescendants()) do
+    for _, child in ipairs(model:GetChildren()) do
         if child:IsA("IntValue") or child:IsA("NumberValue") then
             local lname = child.Name:lower()
             if lname == "health" or lname == "hp" or lname:find("shiphp", 1, true) then
@@ -1445,15 +3241,13 @@ local function FindGhostShipModel()
         Workspace:FindFirstChild("GhostShip"),
         Workspace:FindFirstChild("SeaMonster"),
         Workspace:FindFirstChild("SeaMonsters"),
+        Workspace:FindFirstChild("Monster"),
         Workspace:FindFirstChild("Bosses"),
-        Workspace:FindFirstChild("Mobs"),
-        Workspace:FindFirstChild("Enemies"),
-        Workspace
+        Workspace,
     }
     for _, folder in ipairs(containers) do
         if folder then
-            local list = (folder == Workspace) and Workspace:GetDescendants() or folder:GetChildren()
-            for _, obj in ipairs(list) do
+            for _, obj in ipairs(folder:GetChildren()) do
                 if obj:IsA("Model") and obj ~= Character and not Players:GetPlayerFromCharacter(obj) then
                     local lname = obj.Name:lower()
                     for _, kw in ipairs(shipKeywords) do
@@ -1482,15 +3276,16 @@ local function AttackSeaEventTarget(targetModel)
     local targetPart = targetModel.PrimaryPart or targetModel:FindFirstChild("HumanoidRootPart") or targetModel:FindFirstChildOfClass("BasePart")
     if not targetPart then return false end
 
+    _hakiState.lastCombatTick = tick()
     local targetPos = targetPart.Position
     if Settings.HoverFarm then
         local hoverPos = targetPos + Vector3.new(0, Settings.HoverHeight, 0)
-        EnableHoverLock(hoverPos, targetPos)
+        EnableHoverLock(hoverPos, targetPos, targetPart)
     else
         DisableHoverLock()
         if HumanoidRootPart and HumanoidRootPart.Parent then
-            HumanoidRootPart.CFrame = targetPart.CFrame * CFrame.new(0, 5, -Settings.AttackRange * 0.3)
-            HumanoidRootPart.CFrame = CFrame.lookAt(HumanoidRootPart.Position, targetPos)
+            local cf = targetPart.CFrame * CFrame.new(0, 5, -Settings.AttackRange * 0.3)
+            HumanoidRootPart.CFrame = SafeLookAt(cf.Position, targetPos)
         end
     end
 
@@ -1503,10 +3298,32 @@ local function AttackSeaEventTarget(targetModel)
 end
 
 local function GetInGameSeaTimer(keyword1, keyword2)
-    local sources = {Workspace, ReplicatedStorage, Player:FindFirstChild("PlayerGui")}
+    local attrNames
+    local k1, k2 = (keyword1 or ""):lower(), (keyword2 or ""):lower()
+    if k1:find("ghost", 1, true) or k2:find("ship", 1, true) then
+        attrNames = {"GhostShipSpawnText"}
+    elseif k1:find("third", 1, true) or k2:find("kraken", 1, true) or k1:find("abyssal", 1, true) then
+        attrNames = {"ThirdSeaMonsterSpawnText"}
+    else
+        attrNames = {"SeaMonsterSpawnText"}
+    end
+    for _, attrName in ipairs(attrNames) do
+        local ok, val = pcall(function() return ReplicatedStorage:GetAttribute(attrName) end)
+        if ok and val ~= nil and tostring(val) ~= "" then
+            local timerStr = tostring(val):match("%d+:%d+[:%d]*")
+            if timerStr then
+                return timerStr
+            end
+        end
+    end
+
+    local playerGui = Player:FindFirstChild("PlayerGui")
+    local seaFolder = Workspace:FindFirstChild("SeaMonster") or Workspace:FindFirstChild("SeaMonsters")
+    local sources = {playerGui, seaFolder, ReplicatedStorage}
     for _, src in ipairs(sources) do
         if src then
-            for _, obj in ipairs(src:GetDescendants()) do
+            local list = (src == playerGui) and src:GetDescendants() or src:GetChildren()
+            for _, obj in ipairs(list) do
                 if obj:IsA("TextLabel") or obj:IsA("StringValue") then
                     local val = obj:IsA("TextLabel") and obj.Text or obj.Value
                     local n = obj.Name:lower()
@@ -1574,7 +3391,10 @@ local function CountDragonOrbs()
     return count, foundTool
 end
 
-local function GetSea2LiveStatusText()
+local _sea2TimerCacheText = ""
+local _sea2TimerCacheTime = 0
+
+local function _BuildSea2LiveStatusText()
     local now = tick()
     local hydra = FindHydraModel()
     local hydraText
@@ -1582,7 +3402,7 @@ local function GetSea2LiveStatusText()
         if not _hydraSpawnTime then _hydraSpawnTime = now end
         local hum = hydra:FindFirstChildOfClass("Humanoid")
         local hp = hum and math.floor(hum.Health) or 0
-        hydraText = string.format("🟢 SPAWNED! (HP: %d | Alive: %s)", hp, FormatTimeMMSS(now - _hydraSpawnTime))
+        hydraText = string.format("SPAWNED! (HP: %d | Alive: %s)", hp, FormatTimeMMSS(now - _hydraSpawnTime))
     else
         if _hydraSpawnTime then
             _hydraSpawnTime = nil
@@ -1590,9 +3410,9 @@ local function GetSea2LiveStatusText()
         end
         local igTimer = GetInGameSeaTimer("hydra", "seaking")
         if igTimer then
-            hydraText = "⏳ Spawns in: " .. igTimer
+            hydraText = "Spawns in: " .. igTimer
         else
-            hydraText = string.format("⏳ Not Spawned (Waited: %s / ~30-60m)", FormatTimeMMSS(now - _hydraLastSeenDead))
+            hydraText = string.format("Not Spawned (Waited: %s / ~30-60m)", FormatTimeMMSS(now - _hydraLastSeenDead))
         end
     end
 
@@ -1602,7 +3422,7 @@ local function GetSea2LiveStatusText()
         if not _seaBeastSpawnTime then _seaBeastSpawnTime = now end
         local hum = sb:FindFirstChildOfClass("Humanoid")
         local hp = hum and math.floor(hum.Health) or 0
-        sbText = string.format("🟢 SPAWNED! (HP: %d | Alive: %s)", hp, FormatTimeMMSS(now - _seaBeastSpawnTime))
+        sbText = string.format("SPAWNED! (HP: %d | Alive: %s)", hp, FormatTimeMMSS(now - _seaBeastSpawnTime))
     else
         if _seaBeastSpawnTime then
             _seaBeastSpawnTime = nil
@@ -1610,9 +3430,9 @@ local function GetSea2LiveStatusText()
         end
         local igTimer = GetInGameSeaTimer("seabeast", "sea beast")
         if igTimer then
-            sbText = "⏳ Spawns in: " .. igTimer
+            sbText = "Spawns in: " .. igTimer
         else
-            sbText = string.format("⏳ Not Spawned (Waited: %s / ~20-40m)", FormatTimeMMSS(now - _seaBeastLastSeenDead))
+            sbText = string.format("Not Spawned (Waited: %s / ~20-40m)", FormatTimeMMSS(now - _seaBeastLastSeenDead))
         end
     end
 
@@ -1622,9 +3442,9 @@ local function GetSea2LiveStatusText()
         if not _ghostShipSpawnTime then _ghostShipSpawnTime = now end
         local hp = GetShipHealth(gs)
         if hp then
-            gsText = string.format("🟢 SPAWNED! (HP: %d | Alive: %s)", math.floor(hp), FormatTimeMMSS(now - _ghostShipSpawnTime))
+            gsText = string.format("SPAWNED! (HP: %d | Alive: %s)", math.floor(hp), FormatTimeMMSS(now - _ghostShipSpawnTime))
         else
-            gsText = string.format("🟢 SPAWNED! (Alive: %s)", FormatTimeMMSS(now - _ghostShipSpawnTime))
+            gsText = string.format("SPAWNED! (Alive: %s)", FormatTimeMMSS(now - _ghostShipSpawnTime))
         end
     else
         if _ghostShipSpawnTime then
@@ -1633,9 +3453,9 @@ local function GetSea2LiveStatusText()
         end
         local igTimer = GetInGameSeaTimer("ghost", "ship")
         if igTimer then
-            gsText = "⏳ Spawns in: " .. igTimer
+            gsText = "Spawns in: " .. igTimer
         else
-            gsText = string.format("⏳ Not Spawned (Waited: %s / ~30-60m)", FormatTimeMMSS(now - _ghostShipLastSeenDead))
+            gsText = string.format("Not Spawned (Waited: %s / ~30-60m)", FormatTimeMMSS(now - _ghostShipLastSeenDead))
         end
     end
 
@@ -1644,17 +3464,27 @@ local function GetSea2LiveStatusText()
     if dragon then
         local hum = dragon:FindFirstChildOfClass("Humanoid")
         local hp = hum and math.floor(hum.Health) or 0
-        dragonText = string.format("🟢 SPAWNED! (HP: %d)", hp)
+        dragonText = string.format("SPAWNED! (HP: %d)", hp)
     else
-        dragonText = "⏳ Not Summoned"
+        dragonText = "Not Summoned"
     end
 
     local orbCount = CountDragonOrbs()
 
     return string.format(
-        "🐉 SK Hydra: %s\n🌊 Sea Beast: %s\n🚢 Ghost Ship: %s\n🐲 Dragon Boss: %s\n🔮 Dragon Orb: %d in backpack",
+        "SK Hydra: %s\nSea Beast: %s\nGhost Ship: %s\nDragon Boss: %s\nDragon Orb: %d in backpack",
         hydraText, sbText, gsText, dragonText, orbCount
     )
+end
+
+local function GetSea2LiveStatusText()
+    local now = tick()
+    if _sea2TimerCacheText ~= "" and (now - _sea2TimerCacheTime) < 2.0 then
+        return _sea2TimerCacheText
+    end
+    _sea2TimerCacheText = _BuildSea2LiveStatusText()
+    _sea2TimerCacheTime = now
+    return _sea2TimerCacheText
 end
 
 local function FindDragonShrinePart()
@@ -1745,20 +3575,22 @@ local function FarmDragonOrbStep()
 
     if nearestMob then
         local mobRoot = nearestMob:FindFirstChild("HumanoidRootPart") or nearestMob.PrimaryPart
-        if Settings.BringMob and mobRoot then
-            BringMobs(nearestMob.Name, mobRoot.Position)
+        if mobRoot then
+            _hakiState.lastOrbPos = mobRoot.Position
+            if Settings.BringMob then
+                BringMobs(nearestMob.Name, mobRoot.Position)
+            end
         end
         AttackMob(nearestMob)
     else
-        DisableHoverLock()
-        _orbAreaToggle = not _orbAreaToggle
-        local areaCF = _orbAreaToggle and CFrame.new(-5400, 310, -4600) or CFrame.new(350, 15, -1650)
-        FastTeleport(areaCF, true)
+        local anchor = _hakiState.lastOrbPos or HumanoidRootPart.Position
+        local hoverPos = anchor + Vector3.new(0, Settings.HoverHeight, 0)
+        EnableHoverLock(hoverPos, anchor)
         task.wait(0.8)
     end
 end
 
-local function FindSeaEventChestParts(eventType, lastKnownPos)
+local function FindSeaEventChestParts(eventType, lastKnownPos, allowSpawnerCFrame)
     local specificKeywords = {
         "hydrachest", "seakingchest", "seabeastchest", "ghostchest",
         "shipchest", "cursedchest", "legacychest", "eventchest", "islandchest", "treasurechest"
@@ -1770,6 +3602,40 @@ local function FindSeaEventChestParts(eventType, lastKnownPos)
     }
 
     local results = {}
+    local seenParts = {}
+
+    local function addResult(part, obj, priority, allowTransparent)
+        if not part or seenParts[part] then return end
+        seenParts[part] = true
+        table.insert(results, {part = part, obj = obj, priority = priority, allowTransparent = allowTransparent})
+    end
+
+    -- Primary: Official Sea Event Island ChestSpawner & HydraStand paths
+    local islandFolder = Workspace:FindFirstChild("Island")
+    if islandFolder then
+        for _, child in ipairs(islandFolder:GetChildren()) do
+            local cname = child.Name
+            local clower = cname:lower()
+            if (clower:find("legacy island", 1, true) and (not eventType or eventType == "seabeast" or eventType == "hydra"))
+               or ((cname:sub(1, 8) == "Sea King" or clower:find("sea king", 1, true)) and (not eventType or eventType == "hydra" or eventType == "seabeast")) then
+                local spawner = child:FindFirstChild("ChestSpawner") or child:FindFirstChild("HydraStand")
+                if spawner then
+                    local addedInner = false
+                    for _, desc in ipairs(spawner:GetDescendants()) do
+                        if (desc:IsA("BasePart") and desc.Transparency < 1) and (desc.Name:lower():find("chest", 1, true) or desc:FindFirstChildOfClass("TouchTransmitter") or desc:FindFirstChildOfClass("ProximityPrompt") or desc:FindFirstChildOfClass("ClickDetector")) then
+                            addResult(desc, desc, 1, false)
+                            addedInner = true
+                        end
+                    end
+                    local sPart = spawner:IsA("BasePart") and spawner or (spawner:IsA("Model") and (spawner.PrimaryPart or spawner:FindFirstChildOfClass("BasePart")))
+                    if sPart and (not addedInner) and (allowSpawnerCFrame or sPart.Transparency < 1) then
+                        addResult(sPart, spawner, 2, allowSpawnerCFrame == true)
+                    end
+                end
+            end
+        end
+    end
+
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") or obj:IsA("Model") then
             local lname = obj.Name:lower()
@@ -1806,7 +3672,7 @@ local function FindSeaEventChestParts(eventType, lastKnownPos)
                         local ancestor = obj.Parent
                         while ancestor and ancestor ~= Workspace do
                             local aname = ancestor.Name:lower()
-                            if aname:find("hydra", 1, true) or aname:find("seaking", 1, true) or aname:find("seabeast", 1, true) or aname:find("seaevent", 1, true) or aname:find("ghost", 1, true) then
+                            if aname:find("hydra", 1, true) or aname:find("seaking", 1, true) or aname:find("seabeast", 1, true) or aname:find("seaevent", 1, true) or aname:find("ghost", 1, true) or aname:find("legacy island", 1, true) then
                                 inEventIsland = true
                                 break
                             end
@@ -1815,7 +3681,7 @@ local function FindSeaEventChestParts(eventType, lastKnownPos)
 
                         if isSpecific or matchesEvent or nearLast or inEventIsland then
                             local priority = (matchesEvent and 1) or (isSpecific and 2) or (inEventIsland and 3) or 4
-                            table.insert(results, {part = part, obj = obj, priority = priority})
+                            addResult(part, obj, priority, false)
                         end
                     end
                 end
@@ -1842,12 +3708,12 @@ local function CollectSeaEventChest(eventType, lastKnownPos, waitForSpawn)
 
     for attempt = 1, attempts do
         if not _running then break end
-        local chests = FindSeaEventChestParts(eventType, lastKnownPos)
+        local chests = FindSeaEventChestParts(eventType, lastKnownPos, waitForSpawn == true)
         if #chests > 0 then
             DisableHoverLock()
             for _, item in ipairs(chests) do
                 if not _running then break end
-                if item.part and item.part.Parent and item.part.Transparency < 1 then
+                if item.part and item.part.Parent and (item.part.Transparency < 1 or item.allowTransparent) then
                     CollectTargetPart(item.part)
                     collectedAny = true
                     task.wait(0.25)
@@ -1880,6 +3746,7 @@ end
 
 -- 1. Independent Feature: Auto Kill Hydra + TP Hydra Chest
 local function LoopAutoKillHydra()
+    local lastChestScan = 0
     while _running do
         if Settings.AutoKillHydra then
             pcall(function()
@@ -1892,7 +3759,7 @@ local function LoopAutoKillHydra()
                     if root then _lastHydraPos = root.Position end
                     _hydraActive = true
                     UpdateSea2HoverState()
-                    _farmStatus = "🐉 Killing SK Hydra"
+                    _farmStatus = "Killing SK Hydra"
                     AttackMob(hydra)
                 elseif _lastHydraPos then
                     local pos = _lastHydraPos
@@ -1900,13 +3767,14 @@ local function LoopAutoKillHydra()
                     if Settings.AutoCollectHydraChest then
                         _hydraActive = true
                         UpdateSea2HoverState()
-                        _farmStatus = "🎁 Teleporting to SK Hydra Chest!"
+                        _farmStatus = "Teleporting to SK Hydra Chest!"
                         CollectSeaEventChest("hydra", pos, true)
                     end
                     _hydraActive = false
                     UpdateSea2HoverState()
                 else
-                    if Settings.AutoCollectHydraChest then
+                    if Settings.AutoCollectHydraChest and (tick() - lastChestScan) >= 3.0 then
+                        lastChestScan = tick()
                         CollectSeaEventChest("hydra", nil, false)
                     end
                     _hydraActive = false
@@ -1926,6 +3794,7 @@ end
 
 -- 2. Independent Feature: Auto Kill Sea Beast + TP Sea Beast Chest
 local function LoopAutoKillSeaBeast()
+    local lastChestScan = 0
     while _running do
         if Settings.AutoKillSeaBeast then
             pcall(function()
@@ -1938,7 +3807,7 @@ local function LoopAutoKillSeaBeast()
                     if root then _lastSeaBeastPos = root.Position end
                     _seaBeastActive = true
                     UpdateSea2HoverState()
-                    _farmStatus = "🌊 Killing Sea Beast"
+                    _farmStatus = "Killing Sea Beast"
                     AttackMob(sb)
                 elseif _lastSeaBeastPos then
                     local pos = _lastSeaBeastPos
@@ -1946,13 +3815,14 @@ local function LoopAutoKillSeaBeast()
                     if Settings.AutoCollectHydraChest then
                         _seaBeastActive = true
                         UpdateSea2HoverState()
-                        _farmStatus = "🎁 Teleporting to Sea Beast Chest!"
+                        _farmStatus = "Teleporting to Sea Beast Chest!"
                         CollectSeaEventChest("seabeast", pos, true)
                     end
                     _seaBeastActive = false
                     UpdateSea2HoverState()
                 else
-                    if Settings.AutoCollectHydraChest then
+                    if Settings.AutoCollectHydraChest and (tick() - lastChestScan) >= 3.0 then
+                        lastChestScan = tick()
                         CollectSeaEventChest("seabeast", nil, false)
                     end
                     _seaBeastActive = false
@@ -1972,6 +3842,7 @@ end
 
 -- 3. Independent Feature: Auto Kill Ghost Ship + TP Ghost Ship Chest
 local function LoopAutoKillGhostShip()
+    local lastChestScan = 0
     while _running do
         if Settings.AutoKillGhostShip or Settings.AutoGhostShip then
             pcall(function()
@@ -1984,7 +3855,7 @@ local function LoopAutoKillGhostShip()
                     if root then _lastGhostShipPos = root.Position end
                     _ghostShipActive = true
                     UpdateSea2HoverState()
-                    _farmStatus = "🚢 Killing Ghost Ship"
+                    _farmStatus = "Killing Ghost Ship"
                     AttackSeaEventTarget(gs)
                 elseif _lastGhostShipPos then
                     local pos = _lastGhostShipPos
@@ -1992,13 +3863,14 @@ local function LoopAutoKillGhostShip()
                     if Settings.AutoCollectHydraChest then
                         _ghostShipActive = true
                         UpdateSea2HoverState()
-                        _farmStatus = "🎁 Teleporting to Ghost Ship Chest!"
+                        _farmStatus = "Teleporting to Ghost Ship Chest!"
                         CollectSeaEventChest("ghost", pos, true)
                     end
                     _ghostShipActive = false
                     UpdateSea2HoverState()
                 else
-                    if Settings.AutoCollectHydraChest then
+                    if Settings.AutoCollectHydraChest and (tick() - lastChestScan) >= 3.0 then
+                        lastChestScan = tick()
                         CollectSeaEventChest("ghost", nil, false)
                     end
                     _ghostShipActive = false
@@ -2028,7 +3900,7 @@ local function LoopAutoKillDragon()
                 if dragon then
                     _dragonKillActive = true
                     UpdateSea2HoverState()
-                    _farmStatus = "🐲 Killing Dragon Boss"
+                    _farmStatus = "Killing Dragon Boss"
                     AttackMob(dragon)
                 else
                     _dragonKillActive = false
@@ -2055,7 +3927,7 @@ local function LoopAutoSpawnDragon()
                     return
                 end
                 if not FindDragonBoss() and CountDragonOrbs() > 0 then
-                    _farmStatus = "🔮 Summoning Dragon..."
+                    _farmStatus = "Summoning Dragon..."
                     SpawnDragonWithOrb()
                     spawned = true
                 end
@@ -2077,7 +3949,7 @@ local function LoopAutoFarmDragonOrb()
                 end
                 _dragonOrbActive = true
                 UpdateSea2HoverState()
-                _farmStatus = "🔮 Farming Dragon Orb..."
+                _farmStatus = "Farming Dragon Orb..."
                 FarmDragonOrbStep()
             end)
         else
@@ -2102,111 +3974,181 @@ task.spawn(LoopAutoFarmDragonOrb)
 -- =====================================================
 local MaterialData = {
     {
-        Label = "Carrot (Rabbit / Mink - Sea 2)",
+        Label = "Carrot (Beast Swordman - Sea 2)",
         Name = "Carrot",
         Sea = 2,
-        Mobs = {"Mink Warrior", "Mink Guardian", "Rabbit", "Bunny", "Carrot"},
+        Mobs = {"Beast Swordman [Lv. 2300]", "Beast Swordman", "Mink Warrior"},
         Area = CFrame.new(-2500, 400, -1300),
         CollectGround = true,
         GroundKeywords = {"carrot"},
     },
     {
-        Label = "Fresh Fish (Fishman - Sea 1 & 2)",
-        Name = "Fresh Fish",
+        Label = "Rusted Scrap (Elite Soldier / Beast Swordman)",
+        Name = "Rusted Scrap",
         Sea = 1,
-        Mobs = {"FishMan", "FishMan Commander", "Fishman Warrior", "Karate Fishman"},
-        Area = CFrame.new(2650, 15, 600),
-    },
-    {
-        Label = "Shark Canine (Shark Tooth - Sea 1 & 2)",
-        Name = "Shark Canine",
-        Sea = 1,
-        Mobs = {"FishMan Commander", "Arlong", "Shark", "Fishman Warrior"},
-        Area = CFrame.new(2750, 15, 480),
-    },
-    {
-        Label = "Angels Feather (Skypiea - Sea 1)",
-        Name = "Angels Feather",
-        Sea = 1,
-        Mobs = {"Sky Soldier", "Sky Commander", "God's Guard", "Shura"},
-        Area = CFrame.new(-4850, 790, -2820),
-    },
-    {
-        Label = "Leather (Beast Hide - Sea 1 & 2)",
-        Name = "Leather",
-        Sea = 1,
-        Mobs = {"Gorilla", "Monkey", "Snow Bandit", "Mink Warrior", "Beast Pirate"},
-        Area = CFrame.new(-1100, 20, 4700),
-    },
-    {
-        Label = "Scrap Metal (All Seas)",
-        Name = "Scrap Metal",
-        Sea = 1,
-        Mobs = {"Pirate", "Marine Soldier", "Clown", "Hazard Soldier", "Gladiator"},
+        Mobs = {"Elite Soldier [Lv. 1000]", "Beast Swordman [Lv. 2300]", "Elite Soldier", "Beast Swordman"},
         Area = CFrame.new(-1500, 15, 3800),
     },
     {
-        Label = "Gunpowder (Sea 1 & 2)",
-        Name = "Gunpowder",
+        Label = "Iron Ingot (Beast Pirate - Sea 2)",
+        Name = "Iron Ingot",
+        Sea = 2,
+        Mobs = {"Beast Pirate [Lv. 2250]", "Beast Pirate"},
+        Area = CFrame.new(-1900, 20, -2400),
+    },
+    {
+        Label = "Leather (Commander / Duke)",
+        Name = "Leather",
         Sea = 1,
-        Mobs = {"Pirate", "Clown", "Marine Captain", "Prison Guard", "Beast Pirate"},
+        Mobs = {"Commander [Lv. 100]", "Duke [Lv. 2550]", "Commander", "Duke"},
+        Area = CFrame.new(-1100, 20, 4700),
+    },
+    {
+        Label = "Angellic's Feather (Sky Soldier - Sea 1)",
+        Name = "Angellic's Feather",
+        Sea = 1,
+        Mobs = {"Sky Soldier [Lv. 800]", "Sky Soldier"},
+        Area = CFrame.new(-4850, 790, -2820),
+    },
+    {
+        Label = "Gun Powder (Ball Man / Lomeo)",
+        Name = "Gun Powder",
+        Sea = 1,
+        Mobs = {"Ball Man [Lv. 850]", "Lomeo [Lv. 3675]", "Ball Man", "Lomeo"},
         Area = CFrame.new(1100, 16, 4500),
     },
     {
-        Label = "Undeads Ooze (Skull Island - Sea 2)",
-        Name = "Undeads Ooze",
+        Label = "Fresh Fish (Karate Fishman - Sea 1)",
+        Name = "Fresh Fish",
+        Sea = 1,
+        Mobs = {"Karate Fishman [Lv. 200]", "Karate Fishman", "Fishman"},
+        Area = CFrame.new(2650, 15, 600),
+    },
+    {
+        Label = "Undead Ooze (Zombie / Sally)",
+        Name = "Undead Ooze",
         Sea = 2,
-        Mobs = {"Zombie", "Skeleton", "Dead Troop", "Elite Skeleton"},
+        Mobs = {"Zombie [Lv. 1500]", "Sally [Lv. 3450]", "Zombie", "Sally"},
         Area = CFrame.new(-5400, 310, -4600),
     },
     {
-        Label = "Vampires Vitalfluid (Skull Island - Sea 2)",
-        Name = "Vampires Vitalfluid",
-        Sea = 2,
-        Mobs = {"Vampire", "Dead Troop", "Skull Pirate"},
-        Area = CFrame.new(-5500, 310, -4750),
+        Label = "Shark Canine (Seasoned Fishman)",
+        Name = "Shark Canine",
+        Sea = 1,
+        Mobs = {"Seasoned Fishman [Lv. 2200]", "Seasoned Fishman"},
+        Area = CFrame.new(2750, 15, 480),
     },
     {
-        Label = "Magma Crystal (Punk Hazard - Sea 2)",
+        Label = "Bread Crumps (Chess Soldier - Sea 2)",
+        Name = "Bread Crumps",
+        Sea = 2,
+        Mobs = {"Chess Soldier [Lv. 3200]", "Chess Soldier"},
+        Area = CFrame.new(-3200, 30, -1900),
+    },
+    {
+        Label = "Pile of Bones (Skull Pirate - Sea 2)",
+        Name = "Pile of Bones",
+        Sea = 2,
+        Mobs = {"Skull Pirate [Lv. 3050]", "Skull Pirate"},
+        Area = CFrame.new(-5450, 310, -4650),
+    },
+    {
+        Label = "Thief's Rag (Desert Thief - Sea 2)",
+        Name = "Thief's Rag",
+        Sea = 2,
+        Mobs = {"Desert Thief [Lv. 3125]", "Desert Thief"},
+        Area = CFrame.new(1100, 20, -2100),
+    },
+    {
+        Label = "Dragon Orb (Elite Skeleton - Sea 2)",
+        Name = "Dragon Orb",
+        Sea = 2,
+        Mobs = {"Elite Skeleton [Lv. 3100]", "Elite Skeleton"},
+        Area = CFrame.new(-5400, 310, -4600),
+    },
+    {
+        Label = "Lucidu's Totem (Vice Admiral - Sea 2)",
+        Name = "Lucidu's Totem",
+        Sea = 2,
+        Mobs = {"Vice Admiral [Lv. 3500]", "Vice Admiral"},
+        Area = CFrame.new(1400, 20, -3400),
+    },
+    {
+        Label = "Dark Beard Totem (Dark Beard Servant)",
+        Name = "Dark Beard Totem",
+        Sea = 2,
+        Mobs = {"Dark Beard Servant [Lv. 3400]", "Dark Beard Servant"},
+        Area = CFrame.new(-4900, 250, -4200),
+    },
+    {
+        Label = "Magma Crystal (The Volcano - Sea 2)",
         Name = "Magma Crystal",
         Sea = 2,
-        Mobs = {"Hazard Soldier", "Lava Pirate", "Magma Ninja", "Hot Soldier"},
+        Mobs = {"The Volcano [Lv. 3325]", "The Volcano"},
         Area = CFrame.new(1310, 15, -4200),
     },
     {
-        Label = "Ice Crystal (Punk Hazard - Sea 2)",
-        Name = "Ice Crystal",
+        Label = "Ice Crystals (Azlan - Sea 2)",
+        Name = "Ice Crystals",
         Sea = 2,
-        Mobs = {"Snow Soldier", "Cold Soldier", "Ice Admiral", "Arctic Warrior"},
+        Mobs = {"Azlan [Lv. 3300]", "Azlan"},
         Area = CFrame.new(1250, 15, -4050),
     },
     {
-        Label = "Dragon Scale (Dragon / Beast - Sea 2 & 3)",
-        Name = "Dragon Scale",
+        Label = "Samurai Bandage (Kitsune Samurai)",
+        Name = "Samurai Bandage",
         Sea = 2,
-        Mobs = {"Dragon", "Kaido", "Beast Commander", "Beast Pirate", "Ryu"},
-        Area = CFrame.new(1280, 100, -880),
+        Mobs = {"Kitsune Samurai [Lv. 2650]", "Kitsune Samurai"},
+        Area = CFrame.new(2500, 40, -1800),
     },
     {
-        Label = "Sea Kings Fin (Hydra / Sea King - Sea 2)",
-        Name = "Sea Kings Fin",
+        Label = "Lost Ruby (Anubis - Sea 2)",
+        Name = "Lost Ruby",
         Sea = 2,
-        Mobs = {"Hydra", "Sea King", "SeaKing", "Sea Beast"},
-        Area = CFrame.new(-257, 15, 1427),
+        Mobs = {"Anubis [Lv. 3150]", "Anubis"},
+        Area = CFrame.new(1200, 25, -2200),
     },
     {
-        Label = "Coral & Pearl (Wano / Deep Sea - Sea 3)",
-        Name = "Coral & Pearl",
+        Label = "Essence of Fire (Flame User - Sea 2)",
+        Name = "Essence of Fire",
+        Sea = 2,
+        Mobs = {"Flame User [Lv. 3200]", "Flame User"},
+        Area = CFrame.new(1350, 25, -2300),
+    },
+    {
+        Label = "Twilight Orb (Shadow Master - Lv.1600)",
+        Name = "Twilight Orb",
+        Sea = 1,
+        Mobs = {"Shadow Master [Lv. 1600]", "Shadow Master"},
+        Area = CFrame.new(-3200, 40, 2100),
+    },
+    {
+        Label = "Vital Fluid (Shadow Master - Lv.1650)",
+        Name = "Vital Fluid",
+        Sea = 1,
+        Mobs = {"Shadow Master [Lv. 1650]", "Shadow Master"},
+        Area = CFrame.new(-3250, 40, 2150),
+    },
+    {
+        Label = "Coral and Pearl (Fugitive - Sea 3)",
+        Name = "Coral and Pearl",
         Sea = 3,
-        Mobs = {"Fishman Warrior", "Deep Diver", "Sea Soldier", "Samurai"},
+        Mobs = {"Fugitive [Lv. 4050]", "Fugitive"},
         Area = CFrame.new(-800, 15, 1510),
     },
     {
-        Label = "Lucifers Inferno (Final Island - Sea 3)",
-        Name = "Lucifers Inferno",
+        Label = "Shark Fin (Fishman Guardian - Sea 3)",
+        Name = "Shark Fin",
         Sea = 3,
-        Mobs = {"Elite Pirate", "Pirate King Guard", "Cipher Commander", "Samurai Commander"},
-        Area = CFrame.new(-1580, 15, -3280),
+        Mobs = {"Fishman Guardian [Lv. 4150]", "Fishman Guardian"},
+        Area = CFrame.new(-900, 15, 1650),
+    },
+    {
+        Label = "Diverse Sphere (Gazelle Man - Sea 2)",
+        Name = "Diverse Sphere",
+        Sea = 2,
+        Mobs = {"Gazelle Man [Lv. 2350]", "Gazelle Man"},
+        Area = CFrame.new(-2600, 35, -1400),
     },
 }
 
@@ -2226,12 +4168,32 @@ end
 
 local function GetMaterialCount(matName)
     local count = 0
-    local targetLower = matName:lower():gsub("[%s&]+", "")
+    local targetLower = matName:lower():gsub("[%s&'%.]+", "")
     local targetRaw = matName:lower()
 
     local function matchesName(str)
         local l = str:lower()
-        return l:find(targetRaw, 1, true) or l:gsub("[%s&]+", ""):find(targetLower, 1, true)
+        return l:find(targetRaw, 1, true) or l:gsub("[%s&'%.]+", ""):find(targetLower, 1, true)
+    end
+
+    -- Primary: Official PlayerStats.Material JSON
+    local stats = Player:FindFirstChild("PlayerStats")
+    local matJsonVal = stats and stats:FindFirstChild("Material")
+    if matJsonVal and matJsonVal:IsA("StringValue") and matJsonVal.Value ~= "" then
+        local ok, decoded = pcall(function()
+            return game:GetService("HttpService"):JSONDecode(matJsonVal.Value)
+        end)
+        if ok and type(decoded) == "table" then
+            if type(decoded[matName]) == "number" then
+                return decoded[matName]
+            end
+            for k, v in pairs(decoded) do
+                if type(v) == "number" and matchesName(tostring(k)) then
+                    if v > count then count = v end
+                end
+            end
+            if count > 0 then return count end
+        end
     end
 
     local char = Player.Character
@@ -2326,13 +4288,17 @@ local function FarmMaterialStep(entry)
 
     if nearestMob then
         local mobRoot = nearestMob:FindFirstChild("HumanoidRootPart") or nearestMob.PrimaryPart
-        if Settings.BringMob and mobRoot then
-            BringMobs(nearestMob.Name, mobRoot.Position)
+        if mobRoot then
+            _hakiState.lastMatPos = mobRoot.Position
+            if Settings.BringMob then
+                BringMobs(nearestMob.Name, mobRoot.Position)
+            end
         end
         AttackMob(nearestMob)
     else
-        DisableHoverLock()
-        FastTeleport(entry.Area, true)
+        local anchor = _hakiState.lastMatPos or HumanoidRootPart.Position
+        local hoverPos = anchor + Vector3.new(0, Settings.HoverHeight, 0)
+        EnableHoverLock(hoverPos, anchor)
         task.wait(0.6)
     end
 end
@@ -2348,7 +4314,7 @@ task.spawn(function()
                 end
                 local entry = GetMaterialEntry(Settings.SelectedMaterial)
                 if entry then
-                    _farmStatus = string.format("🥕 Farming Material: %s (Have: %d)", entry.Name, GetMaterialCount(entry.Name))
+                    _farmStatus = string.format("Farming Material: %s (Have: %d)", entry.Name, GetMaterialCount(entry.Name))
                     FarmMaterialStep(entry)
                 end
             end)
@@ -2367,22 +4333,22 @@ end)
 -- =====================================================
 -- REATTACK LOOPS
 -- =====================================================
--- LUỒNG 1: Đổi vũ khí + M1 + Skill burst
+-- THREAD 1: Swap weapon + M1 + Skill burst
 task.spawn(function()
     local weaponIndex = 1
-    while task.wait(0.01) do
-        if _running and Settings.ReAttack then
+    while _running do
+        if Settings.ReAttack then
             pcall(function()
                 local char = Player.Character
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
                 if not hum or hum.Health <= 0 then
-                    _reattackStatus = "Chờ respawn..."
+                    _reattackStatus = "Waiting for respawn..."
                     return
                 end
 
                 local tools = GetCombatTools(char)
                 if #tools == 0 then
-                    _reattackStatus = "Không có vũ khí"
+                    _reattackStatus = "No weapons found"
                     return
                 end
 
@@ -2393,12 +4359,12 @@ task.spawn(function()
                 local slotStart = os.clock()
                 _reattackReady = false
 
-                -- Equip vũ khí
+                -- Equip weapon
                 if targetTool and targetTool.Parent ~= char then
                     hum:EquipTool(targetTool)
                 end
 
-                -- Chờ vũ khí khởi tạo xong
+                -- Wait for weapon initialization
                 task.wait(Settings.EquipSettle)
                 _reattackReady = true
 
@@ -2414,19 +4380,25 @@ task.spawn(function()
             end)
         else
             _reattackReady = false
-            if not Settings.ReAttack then
-                _reattackStatus = "OFF"
-            end
+            _reattackStatus = "OFF"
         end
+        task.wait(Settings.ReAttack and 0.01 or 0.15)
     end
 end)
 
--- LUỒNG 2: Spam M1 nền độc lập (giữa các lần swap)
+-- THREAD 2: Background M1 spam (between swaps OR during active combat)
 task.spawn(function()
-    while true do
-        task.wait(Settings.M1Rate)
-        if _running and Settings.ReAttack and _reattackReady then
-            pcall(BackgroundM1_Safe)
+    while _running do
+        local inCombat = (tick() - (_hakiState.lastCombatTick or 0)) < 0.45
+        if (Settings.ReAttack and _reattackReady) or inCombat then
+            pcall(function()
+                BackgroundM1_Safe()
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton1(Vector2.new(9999, 9999))
+            end)
+            task.wait(Settings.M1Rate or 0.05)
+        else
+            task.wait(0.12)
         end
     end
 end)
@@ -2439,7 +4411,7 @@ task.spawn(function()
         if Settings.AutoHaki then
             pcall(function()
                 local now = tick()
-                if now - _hakiLastCheck >= 2 then
+                if now - _hakiLastCheck >= 3 then
                     _hakiLastCheck = now
                     local char = Player.Character
                     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -2456,12 +4428,174 @@ end)
 -- =====================================================
 -- FARM LOOPS
 -- =====================================================
+do
+    local questMaterialSpecs = {
+        [3350] = {MaterialNeed = "Ice Crystal", BossName = "Azlan [Lv. 3300]", LevelNeed = 3300, QuestName = "Kill 4 Azlan"},
+        [3375] = {MaterialNeed = "Magma Crystal", BossName = "The Volcano [Lv. 3325]", LevelNeed = 3325, QuestName = "Kill 4 The Volcano"},
+        [3475] = {MaterialNeed = "Dark Beard's Totem", BossName = "Sally [Lv. 3450]", LevelNeed = 3450, QuestName = "Kill 1 Sally"},
+        [3575] = {MaterialNeed = "Lucidus's Totem", BossName = "Vice Admiral [Lv. 3500]", LevelNeed = 3500, QuestName = "Kill 5 Vice Admiral"},
+    }
+    local qmTable = nil
+    local qmTried = false
+
+    _hakiState.getOfficialQuest = function(level)
+        if not qmTried then
+            qmTried = true
+            local ok, mod = pcall(function()
+                return require(ReplicatedStorage.Chest.Modules.QuestManager)
+            end)
+            if ok and type(mod) == "table" then
+                qmTable = mod
+            end
+        end
+        if not qmTable then return nil end
+
+        local pid = game.PlaceId
+        local minSeaLv, maxSeaLv = 1, 99999
+        if pid == 4520749081 then
+            minSeaLv, maxSeaLv = 1, 2249
+        elseif pid == 6381829480 then
+            minSeaLv, maxSeaLv = 2250, 3999
+        elseif pid == 15759515082 then
+            minSeaLv, maxSeaLv = 4000, 99999
+        end
+
+        local mobTemplates = ReplicatedStorage:FindFirstChild("MOB")
+        local bestTitle, bestInfo, bestLv = nil, nil, -1
+        for title, info in pairs(qmTable) do
+            if type(info) == "table" and tonumber(info.Level) and info.Mob and not info.DailyQuest then
+                local qLv = info.Level
+                if qLv <= level and qLv >= minSeaLv and qLv <= maxSeaLv then
+                    local qmSpec = questMaterialSpecs[qLv]
+                    local usable = true
+                    if qmSpec then
+                        local hasMat = GetMaterialCount(qmSpec.MaterialNeed) >= 1
+                        local bossAlive = FindNearestMob(qmSpec.BossName, 50000) ~= nil
+                        if not hasMat and not bossAlive then
+                            usable = false
+                        end
+                    end
+                    if usable then
+                        local score = qLv + ((mobTemplates and mobTemplates:FindFirstChild(info.Mob)) and 0.5 or 0)
+                        if score > bestLv then
+                            bestLv = score
+                            bestTitle = title
+                            bestInfo = info
+                        end
+                    end
+                end
+            end
+        end
+
+        if not bestInfo then return nil end
+        return {
+            Title = bestTitle,
+            MinLevel = bestInfo.Level,
+            MobName = bestInfo.Mob,
+            QuestNPC = bestTitle,
+            QuestMaterial = questMaterialSpecs[bestInfo.Level],
+        }
+    end
+end
+
+local _lastSmartQuestAttempt = 0
+local function TryAcceptQuestSmart(quest, nearPos)
+    if not quest or HasActiveQuest() then return end
+    local now = tick()
+    if (now - _lastSmartQuestAttempt) < 6 then return end
+    _lastSmartQuestAttempt = now
+
+    pcall(function()
+        local chest = ReplicatedStorage:FindFirstChild("Chest")
+        local remotes = chest and chest:FindFirstChild("Remotes")
+        local funcs = remotes and remotes:FindFirstChild("Functions")
+
+        if quest.QuestMaterial and funcs then
+            local etcFn = funcs:FindFirstChild("EtcFunction")
+            if etcFn and etcFn:IsA("RemoteFunction") then
+                pcall(function()
+                    etcFn:InvokeServer("QuestSpawnBoss", {
+                        SuccessQuest = "Quest Accepted.",
+                        BossName = quest.QuestMaterial.BossName,
+                        LevelNeed = quest.QuestMaterial.LevelNeed,
+                        QuestName = quest.QuestMaterial.QuestName,
+                        MaterialNeed = quest.QuestMaterial.MaterialNeed,
+                    })
+                end)
+            end
+        end
+
+        if not HasActiveQuest() and funcs and (quest.Title or quest.QuestNPC) then
+            local questRemote = funcs:FindFirstChild("Quest")
+            if questRemote and questRemote:IsA("RemoteFunction") then
+                pcall(function()
+                    questRemote:InvokeServer("take", quest.Title or quest.QuestNPC)
+                end)
+            end
+        end
+
+        if HasActiveQuest() then return end
+
+        local remotesFallback = GetQuestRemotes()
+        for _, r in ipairs(remotesFallback) do
+            if r:IsA("RemoteEvent") then
+                pcall(function() r:FireServer("CheckQuest", quest.QuestNPC) end)
+                pcall(function() r:FireServer(quest.QuestNPC) end)
+            elseif r:IsA("RemoteFunction") then
+                pcall(function() r:InvokeServer("CheckQuest", quest.QuestNPC) end)
+            end
+        end
+
+        if nearPos and not HasActiveQuest() then
+            local npcNameLower = quest.QuestNPC and string.lower(quest.QuestNPC) or ""
+            local closestNPC, closestRoot, bestDist = nil, nil, 1500
+            for _, folderName in ipairs({"AllNPC", "NPCs", "NPC", "QuestNPCs"}) do
+                local folder = Workspace:FindFirstChild(folderName)
+                if folder then
+                    for _, npc in ipairs(folder:GetChildren()) do
+                        if npc:IsA("Model") then
+                            local root = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChildOfClass("BasePart")
+                            if root then
+                                local d = (root.Position - nearPos).Magnitude
+                                if npcNameLower ~= "" and string.find(string.lower(npc.Name), npcNameLower, 1, true) and d <= 1500 then
+                                    closestNPC, closestRoot, bestDist = npc, root, d
+                                    break
+                                elseif string.find(string.lower(npc.Name), "quest", 1, true) and d < bestDist then
+                                    closestNPC, closestRoot, bestDist = npc, root, d
+                                end
+                            end
+                        end
+                    end
+                end
+                if closestNPC and npcNameLower ~= "" and string.find(string.lower(closestNPC.Name), npcNameLower, 1, true) then
+                    break
+                end
+            end
+            if closestNPC and closestRoot then
+                DisableHoverLock()
+                FastTeleport(closestRoot.CFrame + Vector3.new(0, 3, 0), true)
+                task.wait(0.15)
+                InteractWithNPC(closestNPC.Name)
+            end
+        end
+    end)
+end
+
 local function FarmQuest()
     while _running do
         local isCustom = Settings.AutoFarmCustomMob and Settings.CustomMob ~= nil
-        if (Settings.AutoFarm or isCustom) and not _sea2EventActive and not _materialFarmActive then
+        if (Settings.AutoFarm or isCustom) and not _sea2EventActive and not _materialFarmActive and not Settings.AutoDungeon then
             pcall(function()
-                if not Character or not Character.Parent or not HumanoidRootPart or not HumanoidRootPart.Parent then
+                if Settings.AutoFarm then
+                    Settings.HoverFarm = true
+                    Settings.LockLookAtMob = true
+                    Settings.InstantTP = true
+                end
+
+                Character = Player.Character
+                Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+                HumanoidRootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+                if not Character or not Character.Parent or not Humanoid or not HumanoidRootPart or not HumanoidRootPart.Parent then
                     DisableHoverLock()
                     Character = Player.Character or Player.CharacterAdded:Wait()
                     Humanoid = Character:WaitForChild("Humanoid")
@@ -2469,7 +4603,7 @@ local function FarmQuest()
                     wait(2); return
                 end
                 local level = GetLevel()
-                local quest = isCustom and Settings.CustomMob or GetQuestForLevel(level)
+                local quest = isCustom and Settings.CustomMob or (_hakiState.getOfficialQuest and _hakiState.getOfficialQuest(level)) or GetQuestForLevel(level)
                 if not quest then
                     DisableHoverLock()
                     _farmStatus = "No quest for Lv." .. level
@@ -2480,50 +4614,114 @@ local function FarmQuest()
                 _farmStatus = string.format("Lv.%d | %s", level, quest.MobName)
 
                 if GetHPPercent() < Settings.SafeHP then
-                    _farmStatus = "HP thấp, hồi..."
-                    DisableHoverLock()
-                    FastTeleport(quest.NPCPos + Vector3.new(0, 50, 0), true); wait(5); return
+                    _farmStatus = "Low HP, hovering safely..."
+                    local curPos = HumanoidRootPart.Position
+                    local targetY = math.max(curPos.Y, math.min(curPos.Y + 35, 250))
+                    local safePos = Vector3.new(curPos.X, targetY, curPos.Z)
+                    EnableHoverLock(safePos, safePos - Vector3.new(0, 10, 0))
+                    wait(2); return
                 end
 
                 if not isCustom and not HasActiveQuest() then
-                    _farmStatus = "Nhận quest..."
-                    DisableHoverLock()
-                    FastTeleport(quest.NPCPos, true); wait(0.5)
-                    InteractWithNPC(quest.QuestNPC); wait(0.5); return
+                    _farmStatus = "Accepting quest..."
+                    TryAcceptQuestSmart(quest, _hakiState.lastFarmPos or HumanoidRootPart.Position)
                 end
 
-                if Settings.BringMob then
-                    local dist = (HumanoidRootPart.Position - quest.MobArea.Position).Magnitude
-                    if dist > Settings.BringRange then
-                        DisableHoverLock()
-                        FastTeleport(quest.MobArea, true); wait(0.3)
-                    end
-                    local mob = FindNearestMob(quest.MobName, Settings.BringRange)
-                    if mob then
-                        local mobRoot = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
-                        if mobRoot then
-                            BringMobs(quest.MobName, mobRoot.Position)
-                        else
-                            BringMobs(quest.MobName)
+                local mob = FindNearestMob(quest.MobName, 10000, level)
+                if mob then
+                    local mobRoot = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart or mob:FindFirstChildOfClass("BasePart")
+                    if mobRoot then
+                        _hakiState.lastFarmPos = mobRoot.Position
+                        _hakiState.lastFarmMobName = mob.Name
+                        if not isCustom and not HasActiveQuest() then
+                            _farmStatus = "Accepting quest..."
+                            TryAcceptQuestSmart(quest, mobRoot.Position)
                         end
-                        AttackMob(mob)
-                    else
-                        DisableHoverLock()
-                        _farmStatus = "Chờ respawn..."; wait(1)
+                        if Settings.BringMob then
+                            BringMobs(mob.Name, mobRoot.Position)
+                        end
                     end
+                    _farmStatus = string.format("Attacking: %s", mob.Name)
+                    AttackMob(mob)
                 else
-                    local mob = FindNearestMob(quest.MobName, Settings.FarmRange)
-                    if mob then
-                        _farmStatus = string.format("Đánh: %s", quest.MobName)
-                        AttackMob(mob)
-                    else
-                        DisableHoverLock()
-                        _farmStatus = "Tìm mob..."; FastTeleport(quest.MobArea, true); wait(0.5)
+                    _farmStatus = "Streaming / waiting for mob: " .. tostring(quest.MobName)
+                    local mobFolder = ReplicatedStorage:FindFirstChild("MOB")
+                    local tpl = mobFolder and mobFolder:FindFirstChild(quest.MobName)
+                    if not tpl and mobFolder and quest.MobName then
+                        local stripped = quest.MobName:gsub("%s*%[Lv%.?%s*%d+%]%s*", ""):lower()
+                        for _, c in ipairs(mobFolder:GetChildren()) do
+                            if c.Name:lower():find(stripped, 1, true) then
+                                tpl = c
+                                break
+                            end
+                        end
                     end
+                    if tpl and tpl:IsA("Model") then
+                        local ok, tplCF = pcall(function() return tpl:GetModelCFrame() end)
+                        if ok and typeof(tplCF) == "CFrame" then
+                            _hakiState.lastFarmPos = tplCF.Position
+                            if (HumanoidRootPart.Position - tplCF.Position).Magnitude > 140 then
+                                local off = _hakiState.getHoverOffset and _hakiState.getHoverOffset() or Vector3.new(0, Settings.HoverHeight, 0)
+                                FastTeleport(tplCF + off, true)
+                            end
+                        end
+                    end
+
+                    local anchor = nil
+                    if _hakiState.lastFarmPos and (HumanoidRootPart.Position - _hakiState.lastFarmPos).Magnitude <= 2500 then
+                        anchor = _hakiState.lastFarmPos
+                    end
+                    if not anchor then
+                        for _, fName in ipairs({"Monster", "MOB"}) do
+                            local mFolder = Workspace:FindFirstChild(fName)
+                            if mFolder then
+                                local bestD = 2500
+                                for _, obj in ipairs(mFolder:GetDescendants()) do
+                                    if obj:IsA("Model") and not Players:GetPlayerFromCharacter(obj) then
+                                        local r = obj:FindFirstChild("HumanoidRootPart") or obj.PrimaryPart
+                                        if r then
+                                            local d = (HumanoidRootPart.Position - r.Position).Magnitude
+                                            if d < bestD then
+                                                bestD = d
+                                                anchor = r.Position
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            if anchor then break end
+                        end
+                    end
+                    if not anchor then
+                        for _, fName in ipairs({"AllNPC", "NPCs"}) do
+                            local f = Workspace:FindFirstChild(fName)
+                            if f then
+                                local bestD = 2500
+                                for _, npc in ipairs(f:GetChildren()) do
+                                    if npc:IsA("Model") then
+                                        local r = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChildOfClass("BasePart")
+                                        if r then
+                                            local d = (HumanoidRootPart.Position - r.Position).Magnitude
+                                            if d < bestD then
+                                                bestD = d
+                                                anchor = r.Position
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            if anchor then break end
+                        end
+                    end
+                    anchor = anchor or HumanoidRootPart.Position
+                    local off = _hakiState.getHoverOffset and _hakiState.getHoverOffset() or Vector3.new(0, Settings.HoverHeight, 0)
+                    local hoverWaitPos = anchor + off
+                    EnableHoverLock(hoverWaitPos, anchor)
+                    wait(1)
                 end
             end)
-        elseif not _sea2EventActive and not _materialFarmActive then
-            if not Settings.AutoBoss then
+        elseif not _sea2EventActive and not _materialFarmActive and not Settings.AutoDungeon then
+            if not Settings.AutoBoss and not _hakiState.extraCombatActive then
                 DisableHoverLock()
             end
             _farmStatus = "Idle"
@@ -2534,7 +4732,7 @@ end
 
 local function FarmBoss()
     while _running do
-        if Settings.AutoBoss and not _sea2EventActive and not _materialFarmActive then
+        if Settings.AutoBoss and not _sea2EventActive and not _materialFarmActive and not Settings.AutoDungeon then
             pcall(function()
                 if not Character or not Character.Parent or not HumanoidRootPart then
                     DisableHoverLock()
@@ -2545,20 +4743,27 @@ local function FarmBoss()
                 local bossModel = FindBoss(boss.Name)
                 if bossModel then
                     _farmStatus = "Boss: " .. boss.Name
-                    if Settings.BringMob and not Settings.HoverFarm then
-                        pcall(function()
-                            local root = bossModel:FindFirstChild("HumanoidRootPart") or bossModel.PrimaryPart
-                            if root then root.CFrame = HumanoidRootPart.CFrame * CFrame.new(0, 0, -Settings.BringOffset) end
-                        end)
+                    local root = bossModel:FindFirstChild("HumanoidRootPart") or bossModel.PrimaryPart
+                    if root then
+                        _hakiState.lastBossPos = root.Position
+                        if Settings.BringMob and not Settings.HoverFarm then
+                            pcall(function()
+                                root.CFrame = HumanoidRootPart.CFrame * CFrame.new(0, 0, -Settings.BringOffset)
+                            end)
+                        end
                     end
                     AttackMob(bossModel)
                 else
-                    DisableHoverLock()
-                    _farmStatus = "Chờ Boss: " .. boss.Name; FastTeleport(boss.Pos, true); wait(5)
+                    local anchor = _hakiState.lastBossPos or HumanoidRootPart.Position
+                    local off = _hakiState.getHoverOffset and _hakiState.getHoverOffset() or Vector3.new(0, Settings.HoverHeight, 0)
+                    local hoverPos = anchor + off
+                    EnableHoverLock(hoverPos, anchor)
+                    _farmStatus = "Waiting for Boss: " .. boss.Name
+                    wait(2)
                 end
             end)
-        elseif not _sea2EventActive and not _materialFarmActive then
-            if not Settings.AutoFarm and not Settings.AutoFarmCustomMob then
+        elseif not _sea2EventActive and not _materialFarmActive and not Settings.AutoDungeon then
+            if not Settings.AutoFarm and not Settings.AutoFarmCustomMob and not _hakiState.extraCombatActive then
                 DisableHoverLock()
             end
         end
@@ -2581,6 +4786,676 @@ local function AntiAFK()
 end
 
 -- =====================================================
+-- OFFICIAL EXTRA FEATURES, AIMBOT, EVENTS, ESP, FPS BOOST
+-- =====================================================
+do
+    local function getChestFunctions()
+        local chest = ReplicatedStorage:FindFirstChild("Chest")
+        local remotes = chest and chest:FindFirstChild("Remotes")
+        return remotes and remotes:FindFirstChild("Functions")
+    end
+
+    local function getEtcFunction()
+        local funcs = getChestFunctions()
+        return funcs and funcs:FindFirstChild("EtcFunction")
+    end
+
+    -- 1. Auto Enter Game (if still on Loading / Menu screen)
+    task.spawn(function()
+        task.wait(0.8)
+        if not _running then return end
+        local pg = Player:FindFirstChild("PlayerGui")
+        local shouldEnter = (not Player.Character)
+        if pg then
+            for _, g in ipairs(pg:GetChildren()) do
+                local n = g.Name:lower()
+                if (n:find("loading", 1, true) or n:find("menu", 1, true) or n:find("enter", 1, true)) and (g:IsA("ScreenGui") and g.Enabled) then
+                    shouldEnter = true
+                    break
+                end
+            end
+        end
+        if shouldEnter then
+            local etcFn = getEtcFunction()
+            if etcFn and etcFn:IsA("RemoteFunction") then
+                pcall(function()
+                    etcFn:InvokeServer("EnterTheGame", {})
+                end)
+            end
+        end
+    end)
+
+    -- 2. Guarded SkillAction __namecall Aimbot Hook
+    if not _hakiState.skillAimbotHooked
+        and typeof(getrawmetatable) == "function"
+        and typeof(getnamecallmethod) == "function"
+        and typeof(setreadonly) == "function" then
+        _hakiState.skillAimbotHooked = true
+        pcall(function()
+            local mt = getrawmetatable(game)
+            if not mt or not mt.__namecall then return end
+            local oldNamecall = mt.__namecall
+            local wrapFn = (typeof(newcclosure) == "function") and newcclosure or function(f) return f end
+            setreadonly(mt, false)
+            mt.__namecall = wrapFn(function(self, ...)
+                local method = getnamecallmethod()
+                local args = {...}
+                if _running and Settings.SkillAimbot and method == "InvokeServer" and tostring(self) == "SkillAction" then
+                    local targetCF = (typeof(getgenv) == "function") and getgenv().PosMonSkill or nil
+                    if typeof(targetCF) == "CFrame" and type(args[3]) == "table" and (args[3].Type == "Up" or args[3].Type == "Down") then
+                        args[3].MouseHit = targetCF
+                        return oldNamecall(self, table.unpack(args))
+                    end
+                end
+                return oldNamecall(self, ...)
+            end)
+            setreadonly(mt, true)
+        end)
+    end
+
+    -- 3. Shared Combat & Helper Utilities
+    local function fightTarget(mob, statusText)
+        if not mob or not mob.Parent then return false end
+        local root = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart or mob:FindFirstChildOfClass("BasePart")
+        if root and Settings.BringMob then
+            BringMobs(mob.Name, root.Position)
+        end
+        _farmStatus = statusText
+        return AttackMob(mob)
+    end
+
+    local function findFirstAliveTarget(namesList, maxDist)
+        for _, name in ipairs(namesList) do
+            local mob = FindNearestMob(name, maxDist or 50000)
+            if mob then return mob end
+        end
+        for _, folderName in ipairs({"SeaMonster", "SeaMonsters", "Monster", "MOB"}) do
+            local folder = Workspace:FindFirstChild(folderName)
+            if folder then
+                for _, obj in ipairs(folder:GetChildren()) do
+                    if obj:IsA("Model") then
+                        local hum = obj:FindFirstChildOfClass("Humanoid")
+                        local root = obj:FindFirstChild("HumanoidRootPart") or obj.PrimaryPart
+                        if hum and hum.Health > 0 and root then
+                            local lname = obj.Name:lower()
+                            for _, targetName in ipairs(namesList) do
+                                if lname:find(targetName:lower(), 1, true) then
+                                    return obj
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function farmNamedTargets(namesList, statusLabel)
+        local mob = findFirstAliveTarget(namesList, 50000)
+        if mob then
+            fightTarget(mob, statusLabel .. ": " .. mob.Name)
+            return true
+        end
+        -- Check ReplicatedStorage.MOB template to stream far islands
+        local mobFolder = ReplicatedStorage:FindFirstChild("MOB")
+        if mobFolder and HumanoidRootPart and HumanoidRootPart.Parent then
+            for _, targetName in ipairs(namesList) do
+                local tLower = targetName:lower()
+                for _, tpl in ipairs(mobFolder:GetChildren()) do
+                    if tpl:IsA("Model") and tpl.Name:lower():find(tLower, 1, true) then
+                        local ok, cf = pcall(function() return tpl:GetModelCFrame() end)
+                        if ok and typeof(cf) == "CFrame" and (HumanoidRootPart.Position - cf.Position).Magnitude > 180 then
+                            local off = _hakiState.getHoverOffset and _hakiState.getHoverOffset() or Vector3.new(0, Settings.HoverHeight, 0)
+                            FastTeleport(cf + off, true)
+                            _farmStatus = "Streaming " .. tpl.Name .. "..."
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    local function visitNPCAndInteract(npcName, statusLabel)
+        local allNPC = Workspace:FindFirstChild("AllNPC")
+        local npc = allNPC and allNPC:FindFirstChild(npcName)
+        if not npc then
+            for _, fName in ipairs({"NPCs", "NPC", "QuestNPCs"}) do
+                local f = Workspace:FindFirstChild(fName)
+                npc = f and f:FindFirstChild(npcName)
+                if npc then break end
+            end
+        end
+        if npc then
+            local root = npc:IsA("BasePart") and npc or (npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChildOfClass("BasePart"))
+            if root and HumanoidRootPart and HumanoidRootPart.Parent then
+                DisableHoverLock()
+                FastTeleport(root.CFrame + Vector3.new(0, 3, 2), true)
+                task.wait(0.15)
+                _farmStatus = statusLabel or ("Talking to " .. npcName)
+                InteractWithNPC(npcName)
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Third Sea Live Status Helper
+    local thirdSeaBossSpecs = {
+        {label = "Abyssal Tyrant", name = "SeaDragon"},
+        {label = "Chaos Kraken", name = "FuryTentacle"},
+        {label = "Deepsea Crusher", name = "ThirdSeaEldritch Crab"},
+        {label = "Drakenfyr", name = "ThirdSeaDragon"},
+    }
+    _hakiState.getSea3LiveStatusText = function()
+        local parts = {}
+        local ig = GetInGameSeaTimer("third", "kraken")
+        table.insert(parts, "Sea 3 Timer: " .. (ig or "Waiting / Not Shown"))
+        for _, spec in ipairs(thirdSeaBossSpecs) do
+            local m = findFirstAliveTarget({spec.name}, 80000)
+            if m then
+                local hum = m:FindFirstChildOfClass("Humanoid")
+                local hp = hum and math.floor(hum.Health) or 0
+                table.insert(parts, string.format("%s: SPAWNED! (HP: %d)", spec.label, hp))
+            else
+                table.insert(parts, spec.label .. ": Not Spawned")
+            end
+        end
+        return table.concat(parts, "\n")
+    end
+
+    -- 4. Extra Combat / Third Sea / Unlocks / Events / Nearest Loop
+    task.spawn(function()
+        local lastNpcTick = 0
+        while _running do
+            local didWork = false
+            local blocked = Settings.AutoDungeon or _sea2EventActive or _materialFarmActive
+            if not blocked and Character and Character.Parent and HumanoidRootPart and HumanoidRootPart.Parent and Humanoid and Humanoid.Health > 0 then
+                pcall(function()
+                    -- Third Sea Event Bosses
+                    if Settings.AutoDrakenfyr and farmNamedTargets({"ThirdSeaDragon", "Drakenfyr"}, "Killing Drakenfyr") then
+                        didWork = true
+                    elseif Settings.AutoChaosKraken and farmNamedTargets({"FuryTentacle", "Chaos Kraken"}, "Killing Chaos Kraken") then
+                        didWork = true
+                    elseif Settings.AutoDeepseaCrusher and farmNamedTargets({"ThirdSeaEldritch Crab", "Eldritch Crab"}, "Killing Deepsea Crusher") then
+                        didWork = true
+                    elseif Settings.AutoAbyssalTyrant and farmNamedTargets({"SeaDragon", "Abyssal Tyrant"}, "Killing Abyssal Tyrant") then
+                        didWork = true
+                    end
+
+                    -- Sea 2 Unlock Quest
+                    if not didWork and Settings.AutoSea2Unlock then
+                        local stats = Player:FindFirstChild("PlayerStats")
+                        local s2 = stats and stats:FindFirstChild("SecondSeaProgression")
+                        if not s2 or tostring(s2.Value) ~= "Yes" then
+                            if farmNamedTargets({"Seasoned Fishman"}, "Sea 2 Quest") then
+                                didWork = true
+                            elseif (tick() - lastNpcTick) >= 3 then
+                                lastNpcTick = tick()
+                                if visitNPCAndInteract("Traveler", "Sea 2 Quest: Traveler") then
+                                    didWork = true
+                                end
+                            end
+                        end
+                    end
+
+                    -- Sea 3 Unlock Quest
+                    if not didWork and Settings.AutoSea3Unlock then
+                        local heartCount = GetMaterialCount("Heart of Sea")
+                        local cacheCount = GetMaterialCount("Kraken's Cache")
+                        if cacheCount >= 1 then
+                            if (tick() - lastNpcTick) >= 3 then
+                                lastNpcTick = tick()
+                                visitNPCAndInteract("The Squid", "Sea 3 Quest: The Squid")
+                            end
+                            didWork = true
+                        elseif heartCount >= 1 then
+                            if farmNamedTargets({"Tentacle"}, "Sea 3 Quest: Tentacle") then
+                                didWork = true
+                            elseif (tick() - lastNpcTick) >= 3 then
+                                lastNpcTick = tick()
+                                visitNPCAndInteract("Summon Tentacle", "Sea 3 Quest: Summon Tentacle")
+                                didWork = true
+                            end
+                        elseif (tick() - lastNpcTick) >= 3 then
+                            lastNpcTick = tick()
+                            if visitNPCAndInteract("Jack Stones", "Sea 3 Quest: Jack Stones") then
+                                didWork = true
+                            end
+                        end
+                    end
+
+                    -- Haki V2 & Observation V2 Quests
+                    if not didWork and Settings.AutoHakiV2 then
+                        if farmNamedTargets({"Dark Beard", "Sally"}, "Haki V2 Quest") then
+                            didWork = true
+                        elseif (tick() - lastNpcTick) >= 3 then
+                            lastNpcTick = tick()
+                            if not visitNPCAndInteract("Lee", "Haki V2: Lee") then
+                                visitNPCAndInteract("Pung", "Haki V2: Pung")
+                            end
+                            didWork = true
+                        end
+                    end
+
+                    if not didWork and Settings.AutoObserveV2 then
+                        if farmNamedTargets({"LeePung"}, "Observation V2 Quest") then
+                            didWork = true
+                        elseif (tick() - lastNpcTick) >= 3 then
+                            lastNpcTick = tick()
+                            if visitNPCAndInteract("Stranger Uncle", "Observation V2: Stranger Uncle") then
+                                didWork = true
+                            end
+                        end
+                    end
+
+                    -- Passive Tree
+                    if not didWork and Settings.AutoPassiveTree and (tick() - lastNpcTick) >= 3 then
+                        lastNpcTick = tick()
+                        visitNPCAndInteract("PassiveTree", "Passive Tree")
+                    end
+
+                    -- Jack o Lantern / Skull King / Candy / Event Minions
+                    if not didWork and Settings.AutoKillJackO then
+                        if farmNamedTargets({"Jack o lantern", "Jack o Lantern"}, "Killing Jack o Lantern") then
+                            didWork = true
+                        elseif Settings.AutoSummonJackO and GetMaterialCount("Candy") > 50 and (tick() - lastNpcTick) >= 3 then
+                            lastNpcTick = tick()
+                            if visitNPCAndInteract("SummonJackolantern", "Summoning Jack o Lantern") then
+                                didWork = true
+                            end
+                        end
+                    elseif not didWork and Settings.AutoSummonJackO and GetMaterialCount("Candy") > 50 and (tick() - lastNpcTick) >= 3 then
+                        lastNpcTick = tick()
+                        visitNPCAndInteract("SummonJackolantern", "Summoning Jack o Lantern")
+                        didWork = true
+                    end
+
+                    if not didWork and Settings.AutoKillSkullKing and farmNamedTargets({"Skull King"}, "Killing Skull King") then
+                        didWork = true
+                    end
+
+                    if not didWork and Settings.AutoKillMinion then
+                        local evSpawns = Workspace:FindFirstChild("EventSpawns")
+                        if evSpawns then
+                            for _, sp in ipairs(evSpawns:GetChildren()) do
+                                local chest = sp:FindFirstChild("Chest")
+                                local root = chest and (chest:FindFirstChild("RootPart") or chest:FindFirstChildOfClass("BasePart"))
+                                if root and root.Transparency < 1 then
+                                    CollectTargetPart(root)
+                                    didWork = true
+                                    break
+                                end
+                            end
+                        end
+                        if not didWork then
+                            for i = 1, 7 do
+                                local c = Workspace:FindFirstChild("Chest" .. i)
+                                if c then
+                                    local p = c:IsA("BasePart") and c or (c:FindFirstChild("RootPart") or c:FindFirstChildOfClass("BasePart"))
+                                    if p and p.Transparency < 1 then
+                                        CollectTargetPart(p)
+                                        didWork = true
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                        if not didWork and farmNamedTargets({"Minion", "Halloween"}, "Killing Event Minions") then
+                            didWork = true
+                        end
+                    end
+
+                    if not didWork and Settings.AutoFarmCandy and farmNamedTargets({"Candy", "Skeleton", "Pumpkin", "Jack"}, "Farming Candy") then
+                        didWork = true
+                    end
+
+                    -- Auto Farm Nearest Mob (yields to Farm Level / Custom Mob / Boss)
+                    if not didWork and Settings.AutoFarmNearest and not Settings.AutoFarm and not Settings.AutoFarmCustomMob and not Settings.AutoBoss then
+                        local mob = FindNearestMob(nil, 2500)
+                        if mob then
+                            didWork = fightTarget(mob, "Nearest: " .. mob.Name)
+                        end
+                    end
+                end)
+            end
+
+            local wasExtra = _hakiState.extraCombatActive
+            _hakiState.extraCombatActive = didWork
+            if wasExtra and not didWork and not Settings.AutoFarm and not Settings.AutoFarmCustomMob and not Settings.AutoBoss and not _sea2EventActive and not _materialFarmActive and not Settings.AutoDungeon then
+                DisableHoverLock()
+            end
+            task.wait(0.25)
+        end
+    end)
+
+    -- 5. Fruit / Keys / Stock / Accessories / InfGeppo Utilities
+    task.spawn(function()
+        local lastKeyTick, lastStockTick, lastAccTick = 0, 0, 0
+        while _running do
+            local now = tick()
+            pcall(function()
+                -- Bring All Workspace Fruits to Player
+                if Settings.BringAllFruits and HumanoidRootPart and HumanoidRootPart.Parent then
+                    for _, obj in ipairs(Workspace:GetChildren()) do
+                        if obj:IsA("Tool") and obj.Name:lower():find("fruit", 1, true) then
+                            local handle = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
+                            if handle then
+                                handle.CFrame = HumanoidRootPart.CFrame
+                            end
+                        end
+                    end
+                end
+
+                -- Auto Store Fruit
+                if Settings.AutoStoreFruit then
+                    local pg = Player:FindFirstChild("PlayerGui")
+                    local char = Player.Character
+                    local bp = Player:FindFirstChild("Backpack")
+                    if char and not char:FindFirstChildOfClass("Tool") and bp then
+                        for _, t in ipairs(bp:GetChildren()) do
+                            if t:IsA("Tool") and t.Name:lower():find("fruit", 1, true) and not IsCombatWeaponTool(t) then
+                                local hum = char:FindFirstChildOfClass("Humanoid")
+                                if hum then pcall(function() hum:EquipTool(t) end) end
+                                break
+                            end
+                        end
+                    end
+                    local becky = pg and pg:FindFirstChild("EatFruitBecky")
+                    local dlg = becky and becky:FindFirstChild("Dialogue")
+                    local collectBtn = dlg and dlg:FindFirstChild("Collect")
+                    if collectBtn and typeof(firesignal) == "function" then
+                        pcall(function() firesignal(collectBtn.MouseButton1Click) end)
+                        pcall(function() firesignal(collectBtn.Activated) end)
+                    end
+                end
+
+                -- Auto Buy / Open Keys
+                if (Settings.AutoBuyKey or Settings.AutoOpenKey) and (now - lastKeyTick) >= 1.5 then
+                    lastKeyTick = now
+                    local funcs = getChestFunctions()
+                    if funcs then
+                        local keyName = Settings.SelectedKey or "Copper Key"
+                        if Settings.AutoBuyKey then
+                            local buyKey = funcs:FindFirstChild("BuyKey")
+                            if buyKey and buyKey:IsA("RemoteFunction") then
+                                pcall(function() buyKey:InvokeServer(keyName, 1) end)
+                            end
+                        end
+                        if Settings.AutoOpenKey then
+                            local useKey = funcs:FindFirstChild("UseKey")
+                            if useKey and useKey:IsA("RemoteFunction") then
+                                pcall(function() useKey:InvokeServer(keyName, "Open1") end)
+                            end
+                        end
+                    end
+                end
+
+                -- Auto Buy Fruit Stock
+                if Settings.AutoBuyStockFruit and Settings.SelectedStockFruit ~= "" and (now - lastStockTick) >= 2.0 then
+                    lastStockTick = now
+                    local funcs = getChestFunctions()
+                    local buyStock = funcs and funcs:FindFirstChild("BuyFruitStock")
+                    if buyStock and buyStock:IsA("RemoteFunction") then
+                        pcall(function() buyStock:InvokeServer(Settings.SelectedStockFruit, true) end)
+                    end
+                end
+
+                -- Auto Equip Accessory
+                if Settings.AutoEquipAccessory and Settings.SelectedAccessory ~= "" and (now - lastAccTick) >= 2.5 then
+                    lastAccTick = now
+                    local char = Player.Character
+                    if char and not char:FindFirstChild(Settings.SelectedAccessory) then
+                        local funcs = getChestFunctions()
+                        local accEq = funcs and funcs:FindFirstChild("AccessoryEq")
+                        if accEq and accEq:IsA("RemoteFunction") then
+                            pcall(function() accEq:InvokeServer(Settings.SelectedAccessory) end)
+                        end
+                    end
+                end
+            end)
+            task.wait(0.5)
+        end
+    end)
+
+    -- Inf Geppo via JumpRequest
+    do
+        local geppoConn
+        geppoConn = UIS.JumpRequest:Connect(function()
+            if not _running then
+                if geppoConn then geppoConn:Disconnect(); geppoConn = nil end
+                return
+            end
+            if not Settings.InfGeppo then return end
+            pcall(function()
+                local char = Player.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end)
+        end)
+    end
+
+    -- 6. FPS Boost / Anti-Lag Loop + Restore on Disable
+    task.spawn(function()
+        local whiteApplied = false
+        local uiHiddenApplied = false
+        local effectsMoved = false
+        while _running do
+            pcall(function()
+                if Settings.WhiteScreen then
+                    if not whiteApplied then
+                        whiteApplied = true
+                        RunService:Set3dRenderingEnabled(false)
+                    end
+                elseif whiteApplied then
+                    whiteApplied = false
+                    RunService:Set3dRenderingEnabled(true)
+                end
+
+                local pg = Player:FindFirstChild("PlayerGui")
+                local chest = ReplicatedStorage:FindFirstChild("Chest")
+                local chestGui = chest and chest:FindFirstChild("Gui")
+                if Settings.HideLevelUpUI then
+                    uiHiddenApplied = true
+                    for _, parentGui in ipairs({pg, chestGui}) do
+                        if parentGui then
+                            for _, name in ipairs({"LevelUp", "ItemDrop"}) do
+                                local g = parentGui:FindFirstChild(name)
+                                if g and g:IsA("LayerCollector") then g.Enabled = false end
+                            end
+                        end
+                    end
+                elseif uiHiddenApplied then
+                    uiHiddenApplied = false
+                    for _, parentGui in ipairs({pg, chestGui}) do
+                        if parentGui then
+                            for _, name in ipairs({"LevelUp", "ItemDrop"}) do
+                                local g = parentGui:FindFirstChild(name)
+                                if g and g:IsA("LayerCollector") then g.Enabled = true end
+                            end
+                        end
+                    end
+                end
+
+                if Settings.HideMobHealth then
+                    for _, fName in ipairs({"Monster", "MOB"}) do
+                        local f = Workspace:FindFirstChild(fName)
+                        if f then
+                            for _, d in ipairs(f:GetDescendants()) do
+                                if d:IsA("BillboardGui") then
+                                    d.Enabled = false
+                                elseif d:IsA("Humanoid") then
+                                    d.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if Settings.DeleteDamageText then
+                    for _, container in ipairs({Workspace, pg}) do
+                        if container then
+                            local dmg = container:FindFirstChild("DamageShow")
+                            if dmg then
+                                if dmg:IsA("LayerCollector") then
+                                    dmg.Enabled = false
+                                else
+                                    dmg:ClearAllChildren()
+                                end
+                            end
+                        end
+                    end
+                end
+
+                local effects = Workspace:FindFirstChild("Effects")
+                local cam = Workspace.CurrentCamera
+                if Settings.DeleteHeavyEffects and effects and cam then
+                    effectsMoved = true
+                    for _, child in ipairs(effects:GetChildren()) do
+                        child.Parent = cam
+                    end
+                elseif effectsMoved and effects and cam then
+                    effectsMoved = false
+                    for _, child in ipairs(cam:GetChildren()) do
+                        if not child:IsA("Camera") then
+                            child.Parent = effects
+                        end
+                    end
+                end
+            end)
+            task.wait(1.0)
+        end
+        pcall(function() RunService:Set3dRenderingEnabled(true) end)
+    end)
+
+    -- 7. Lightweight ESP Loop + Cleanup
+    task.spawn(function()
+        local activeEsps = {}
+        local function clearAllEsp()
+            for obj, bb in pairs(activeEsps) do
+                pcall(function()
+                    if bb and bb.Parent then bb:Destroy() end
+                end)
+                activeEsps[obj] = nil
+            end
+        end
+
+        local function setEspTag(targetPart, textStr, color3)
+            if not targetPart or not targetPart.Parent then return end
+            local bb = activeEsps[targetPart]
+            if not bb or not bb.Parent then
+                bb = Instance.new("BillboardGui")
+                bb.Name = "KL_ESP"
+                bb.AlwaysOnTop = true
+                bb.Size = UDim2.fromOffset(160, 26)
+                bb.StudsOffset = Vector3.new(0, 3, 0)
+                local lbl = Instance.new("TextLabel")
+                lbl.Name = "Label"
+                lbl.BackgroundTransparency = 1
+                lbl.Size = UDim2.fromScale(1, 1)
+                lbl.Font = Enum.Font.SourceSansBold
+                lbl.TextSize = 13
+                lbl.TextStrokeTransparency = 0.3
+                lbl.TextColor3 = color3
+                lbl.Parent = bb
+                bb.Parent = targetPart
+                activeEsps[targetPart] = bb
+            end
+            local lbl = bb:FindFirstChild("Label")
+            if lbl then
+                lbl.Text = textStr
+                lbl.TextColor3 = color3
+            end
+        end
+
+        while _running do
+            local anyEsp = Settings.ESPPlayer or Settings.ESPFruit or Settings.ESPLegacyIsland or Settings.ESPHydraIsland or Settings.ESPGhostShip
+            if not anyEsp then
+                clearAllEsp()
+            else
+                local wanted = {}
+                local myRoot = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+                local function getDist(part)
+                    return myRoot and math.floor((part.Position - myRoot.Position).Magnitude) or 0
+                end
+
+                pcall(function()
+                    if Settings.ESPPlayer then
+                        for _, p in ipairs(Players:GetPlayers()) do
+                            if p ~= Player and p.Character then
+                                local r = p.Character:FindFirstChild("HumanoidRootPart") or p.Character:FindFirstChild("Head")
+                                if r then
+                                    wanted[r] = true
+                                    setEspTag(r, string.format("[Player] %s (%dm)", p.Name, getDist(r)), Color3.fromRGB(100, 220, 255))
+                                end
+                            end
+                        end
+                    end
+
+                    if Settings.ESPFruit then
+                        for _, obj in ipairs(Workspace:GetChildren()) do
+                            if (obj:IsA("Tool") or obj:IsA("Model")) and obj.Name:lower():find("fruit", 1, true) then
+                                local r = obj:FindFirstChild("Handle") or obj.PrimaryPart or obj:FindFirstChildOfClass("BasePart")
+                                if r then
+                                    wanted[r] = true
+                                    setEspTag(r, string.format("[Fruit] %s (%dm)", obj.Name, getDist(r)), Color3.fromRGB(255, 190, 60))
+                                end
+                            end
+                        end
+                    end
+
+                    local islandFolder = Workspace:FindFirstChild("Island")
+                    if islandFolder then
+                        for _, child in ipairs(islandFolder:GetChildren()) do
+                            local cl = child.Name:lower()
+                            if Settings.ESPLegacyIsland and cl:find("legacy island", 1, true) then
+                                local r = child:FindFirstChild("ChestSpawner") or child.PrimaryPart or child:FindFirstChildOfClass("BasePart")
+                                local p = (r and r:IsA("BasePart") and r) or (r and r:FindFirstChildOfClass("BasePart"))
+                                if p then
+                                    wanted[p] = true
+                                    setEspTag(p, string.format("[Legacy Island] (%dm)", getDist(p)), Color3.fromRGB(120, 255, 140))
+                                end
+                            elseif Settings.ESPHydraIsland and (cl:find("sea king", 1, true) or cl:find("hydra", 1, true)) then
+                                local r = child:FindFirstChild("HydraStand") or child.PrimaryPart or child:FindFirstChildOfClass("BasePart")
+                                local p = (r and r:IsA("BasePart") and r) or (r and r:FindFirstChildOfClass("BasePart"))
+                                if p then
+                                    wanted[p] = true
+                                    setEspTag(p, string.format("[Hydra Island] (%dm)", getDist(p)), Color3.fromRGB(255, 90, 90))
+                                end
+                            end
+                        end
+                    end
+
+                    if Settings.ESPGhostShip then
+                        local gs = FindGhostShipModel()
+                        if gs then
+                            local p = gs.PrimaryPart or gs:FindFirstChildOfClass("BasePart")
+                            if p then
+                                wanted[p] = true
+                                setEspTag(p, string.format("[Ghost Ship] (%dm)", getDist(p)), Color3.fromRGB(190, 130, 255))
+                            end
+                        end
+                    end
+                end)
+
+                for obj, bb in pairs(activeEsps) do
+                    if not wanted[obj] or not obj.Parent then
+                        pcall(function() if bb and bb.Parent then bb:Destroy() end end)
+                        activeEsps[obj] = nil
+                    end
+                end
+            end
+            task.wait(0.6)
+        end
+        clearAllEsp()
+    end)
+end
+
+-- =====================================================
 -- RYZEN HUB UI (13 TABS)
 -- =====================================================
 local UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/phamvienbie/Lua-tester/refs/heads/main/HubUI_v7.lua"))()
@@ -2588,7 +5463,6 @@ local UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/phamvienbi
 local Window = UI:CreateWindow({
     Title = "Ryzen Hub",
     Author = "King Legacy",
-    Icon = "crown",
     Folder = "Ryzen Hub",
     Size = UDim2.fromOffset(580, 300),
     Scale = 1,
@@ -2596,39 +5470,42 @@ local Window = UI:CreateWindow({
     Hidden = true,
 })
 
-local loading = Window:Loading("Loading", "King Legacy Hub đang khởi tạo...")
+local loading = Window:Loading("Loading", "Initializing King Legacy Hub...")
+
+local HomeTimeParagraph, HomeStatsParagraph, StatusParagraph, MaterialStatusParagraph, ReStatusParagraph, Sea2TimerParagraph, DungeonStatusParagraph
 
 -- ============================================================
 -- 1. TAB: Home
 -- ============================================================
-local Home = Window:Tab({Title = "Home", Icon = "house"})
+do
+local Home = Window:Tab({Title = "Home"})
 
 local InfoSec = Home:Section({Title = "About Ryzen Hub", Side = "Left"})
 InfoSec:Paragraph({
-    Title = "👑 Ryzen Hub - T3 Studio",
+    Title = "Ryzen Hub - T3 Studio",
     Desc = "Ryzen Hub was created by kaibeo, a member of T3 Studio specializing in script creation and executors, etc.",
 })
-local HomeTimeParagraph = InfoSec:Paragraph({
-    Title = "🕒 Time Server & Time Game",
-    Desc = "🖥 Time SV: --\n⏱ Time Game (Session): --\n🌞 Giờ Trong Game: --\n🕰 Giờ Thực Tế: --\n👥 Server Players: --",
+HomeTimeParagraph = InfoSec:Paragraph({
+    Title = "Time Server & Time Game",
+    Desc = "Server Time: --\nGame Time (Session): --\nIn-Game Time: --\nReal Time: --\nServer Players: --",
 })
 InfoSec:Button({
-    Title = "Rejoin Server", Icon = "refresh-cw",
+    Title = "Rejoin Server",
     Callback = function()
         game:GetService("TeleportService"):Teleport(game.PlaceId, Player)
     end,
 })
 InfoSec:Button({
-    Title = "Server Hop", Icon = "globe",
+    Title = "Server Hop",
     Callback = function()
         ServerHop()
     end,
 })
 
-local HomeStatsSec = Home:Section({Title = "Tiền, Gem & Nhân Vật", Side = "Right"})
-local HomeStatsParagraph = HomeStatsSec:Paragraph({
-    Title = "💰 Thông Tin Tài Khoản",
-    Desc = "👤 Player: --\n📊 Level: --\n💵 Tiền (Beli): --\n💎 Gem: --\n🏴‍☠️ Bounty: --\n🍎 Fruit: --\n❤ HP: --%",
+local HomeStatsSec = Home:Section({Title = "Money, Gems & Character", Side = "Right"})
+HomeStatsParagraph = HomeStatsSec:Paragraph({
+    Title = "Account Info",
+    Desc = "Player: --\nLevel: --\nBeli: --\nGems: --\nBounty: --\nFruit: --\nHP: --%",
 })
 
 local PlayerSec = Home:Section({Title = "Player Settings", Side = "Right"})
@@ -2656,67 +5533,81 @@ PlayerSec:Toggle({
     end,
 })
 
+end
+
 -- ============================================================
 -- 2. TAB: Farm
 -- ============================================================
-local Farm = Window:Tab({Title = "Farm", Icon = "swords"})
+do
+local Farm = Window:Tab({Title = "Farm"})
 
 local FarmMainSec = Farm:Section({Title = "Farm Level", Side = "Left"})
 FarmMainSec:Toggle({
     Title = "Auto Farm Level", Value = false, Flag = "AutoFarmLevel",
     Callback = function(v)
         Settings.AutoFarm = v
-        if v then Settings.AutoFarmCustomMob = false end
-        UI:Notify({Title = "Auto Farm", Content = v and "Bắt đầu farm level!" or "Đã tắt", Kind = v and "success" or "info", Duration = 2})
+        if v then
+            Settings.AutoFarmCustomMob = false
+            Settings.HoverFarm = true
+            Settings.LockLookAtMob = true
+            Settings.InstantTP = true
+        end
+        UI:Notify({
+            Title = "Auto Farm",
+            Content = v and "Started Auto Farm Level (Hover + Lock + TP Bypass)!" or "Stopped Auto Farm Level",
+            Kind = v and "success" or "info",
+            Duration = 2,
+        })
         if not v then
             _farmStatus = "Idle"
-            if not Settings.AutoBoss and not Settings.AutoFarmCustomMob and not _sea2EventActive and not _materialFarmActive then DisableHoverLock() end
+            if not Settings.AutoBoss and not Settings.AutoFarmCustomMob and not _sea2EventActive and not _materialFarmActive and not _hakiState.extraCombatActive then DisableHoverLock() end
         end
     end,
 })
 FarmMainSec:Toggle({
-    Title = "Hover Trên Đầu Quái", Value = true, Flag = "HoverFarm",
+    Title = "Auto Farm Nearest Mob", Value = false, Flag = "AutoFarmNearest",
     Callback = function(v)
-        Settings.HoverFarm = v
-        if not v then DisableHoverLock() end
-        UI:Notify({Title = "Hover Farm", Content = v and "ON - Treo trên đầu quái" or "OFF", Kind = v and "success" or "info", Duration = 2})
+        Settings.AutoFarmNearest = v
+        if not v and not Settings.AutoFarm and not Settings.AutoBoss and not Settings.AutoFarmCustomMob then
+            DisableHoverLock()
+        end
     end,
 })
-FarmMainSec:Toggle({
-    Title = "Lock Mặt Vào Quái", Value = true, Flag = "LockLookAtMob",
-    Callback = function(v) Settings.LockLookAtMob = v end,
+FarmMainSec:Dropdown({
+    Title = "Farm Position Mode", Values = {"Above", "Beside", "Lower"}, Value = "Above", Flag = "FarmPosition",
+    Callback = function(v) Settings.FarmPosition = v end,
 })
 FarmMainSec:Toggle({
-    Title = "TP Bypass (1 Lần Ăn Luôn)", Value = true, Flag = "InstantTP",
-    Callback = function(v) Settings.InstantTP = v end,
+    Title = "Skill Aimbot (SkillAction)", Value = true, Flag = "SkillAimbot",
+    Callback = function(v) Settings.SkillAimbot = v end,
 })
-local StatusParagraph = FarmMainSec:Paragraph({
-    Title = "⚡ Farm Status",
+StatusParagraph = FarmMainSec:Paragraph({
+    Title = "Farm Status",
     Desc = "Level: --\nQuest: --\nTarget: --\nHP: --%\nBring: 0 mobs",
 })
 
-local MatSec = Farm:Section({Title = "Farm Nguyên Liệu (Material)", Side = "Left"})
+local MatSec = Farm:Section({Title = "Material Farm", Side = "Left"})
 MatSec:Dropdown({
-    Title = "Chọn Nguyên Liệu", Values = MaterialLabels, Value = MaterialLabels[1], Flag = "SelectedMaterial",
+    Title = "Select Material", Values = MaterialLabels, Value = MaterialLabels[1], Flag = "SelectedMaterial",
     Callback = function(v)
         Settings.SelectedMaterial = v
         local entry = GetMaterialEntry(v)
         UI:Notify({
-            Title = "Nguyên Liệu",
-            Content = string.format("Đã chọn: %s (Sea %d)", entry.Name, entry.Sea),
+            Title = "Material",
+            Content = string.format("Selected: %s (Sea %d)", entry.Name, entry.Sea),
             Kind = "info",
             Duration = 2,
         })
     end,
 })
 MatSec:Toggle({
-    Title = "Auto Farm Nguyên Liệu", Value = false, Flag = "AutoFarmMaterial",
+    Title = "Auto Farm Material", Value = false, Flag = "AutoFarmMaterial",
     Callback = function(v)
         Settings.AutoFarmMaterial = v
         local entry = GetMaterialEntry(Settings.SelectedMaterial)
         UI:Notify({
-            Title = "Farm Nguyên Liệu",
-            Content = v and ("ON - Đang farm: " .. entry.Name) or "OFF",
+            Title = "Material Farm",
+            Content = v and ("ON - Farming: " .. entry.Name) or "OFF",
             Kind = v and "success" or "info",
             Duration = 2,
         })
@@ -2729,19 +5620,19 @@ MatSec:Toggle({
     end,
 })
 MatSec:Button({
-    Title = "TP Đến Bãi Nguyên Liệu", Icon = "map-pin",
+    Title = "TP To Material Area",
     Callback = function()
         local entry = GetMaterialEntry(Settings.SelectedMaterial)
         if entry then
             DisableHoverLock()
             FastTeleport(entry.Area, true)
-            UI:Notify({Title = "Teleport", Content = "Đã TP tới bãi " .. entry.Name .. " (Sea " .. entry.Sea .. ")", Kind = "success", Duration = 2})
+            UI:Notify({Title = "Teleport", Content = "Teleported to " .. entry.Name .. " area (Sea " .. entry.Sea .. ")", Kind = "success", Duration = 2})
         end
     end,
 })
-local MaterialStatusParagraph = MatSec:Paragraph({
-    Title = "🎒 Túi Nguyên Liệu",
-    Desc = "Đang chọn: Carrot | Số lượng: --",
+MaterialStatusParagraph = MatSec:Paragraph({
+    Title = "Material Bag",
+    Desc = "Selected: Carrot | Count: --",
 })
 
 local CodeSec = Farm:Section({Title = "Redeem Code & Quick Boss", Side = "Right"})
@@ -2751,49 +5642,52 @@ CodeSec:Toggle({
         Settings.AutoRedeemCodes = v
         if v then
             RedeemAllCodes(function(count)
-                UI:Notify({Title = "Codes", Content = "Đã gửi " .. count .. " mã code!", Kind = "success", Duration = 2.5})
+                UI:Notify({Title = "Codes", Content = "Submitted " .. count .. " codes!", Kind = "success", Duration = 2.5})
             end)
         end
     end,
 })
 CodeSec:Button({
-    Title = "Redeem All Codes Ngay", Icon = "gift",
+    Title = "Redeem All Codes Now",
     Callback = function()
-        UI:Notify({Title = "Codes", Content = "Đang nhập " .. #KingLegacyCodes .. " codes...", Kind = "info", Duration = 2})
+        UI:Notify({Title = "Codes", Content = "Redeeming " .. #KingLegacyCodes .. " codes...", Kind = "info", Duration = 2})
         RedeemAllCodes(function(count)
-            UI:Notify({Title = "Codes", Content = "Hoàn tất gửi " .. count .. " code!", Kind = "success", Duration = 3})
+            UI:Notify({Title = "Codes", Content = "Finished redeeming " .. count .. " codes!", Kind = "success", Duration = 3})
         end)
     end,
 })
 CodeSec:Input({
-    Title = "Nhập Code", Placeholder = "VD: 2MFAV", Flag = "ManualCode",
+    Title = "Enter Code", Placeholder = "e.g. 2MFAV", Flag = "ManualCode",
     Callback = function(text)
         local trimmed = text:match("^%s*(.-)%s*$")
         if trimmed and trimmed ~= "" then
             local ok = RedeemCode(trimmed)
-            UI:Notify({Title = "Redeem Code", Content = ok and ("Đã gửi code: " .. trimmed) or "Không tìm thấy remote code", Kind = ok and "success" or "error", Duration = 2})
+            UI:Notify({Title = "Redeem Code", Content = ok and ("Submitted code: " .. trimmed) or "Code remote not found", Kind = ok and "success" or "error", Duration = 2})
         end
     end,
 })
 CodeSec:Toggle({
-    Title = "Auto Farm Boss Hiện Tại", Value = false, Flag = "QuickAutoBoss",
+    Title = "Auto Farm Current Boss", Value = false, Flag = "QuickAutoBoss",
     Callback = function(v)
         Settings.AutoBoss = v
-        UI:Notify({Title = "Boss", Content = v and "Farm boss bật!" or "Đã tắt", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "Boss", Content = v and "Boss farm enabled!" or "Disabled", Kind = v and "success" or "info", Duration = 2})
         if not v and not Settings.AutoFarm and not Settings.AutoFarmCustomMob and not _sea2EventActive and not _materialFarmActive then
             DisableHoverLock()
         end
     end,
 })
 
+end
+
 -- ============================================================
 -- 3. TAB: Setting Farm
 -- ============================================================
-local FSet = Window:Tab({Title = "Setting Farm", Icon = "settings"})
+do
+local FSet = Window:Tab({Title = "Setting Farm"})
 
-local WeaponBringSec = FSet:Section({Title = "Vũ Khí & Bring Mob", Side = "Left"})
+local WeaponBringSec = FSet:Section({Title = "Weapons & Bring Mob", Side = "Left"})
 WeaponBringSec:Dropdown({
-    Title = "Chọn Loại Vũ Khí", Values = {"Melee", "Sword", "Fruit", "All (ReAttack)"}, Value = "Melee", Flag = "WeaponType",
+    Title = "Select Weapon Type", Values = {"Melee", "Sword", "Fruit", "All (ReAttack)"}, Value = "Melee", Flag = "WeaponType",
     Callback = function(v)
         Settings.WeaponType = v
         if v == "All (ReAttack)" then
@@ -2803,28 +5697,28 @@ WeaponBringSec:Dropdown({
 })
 local initialTools = GetToolNames()
 local WeaponDropdown = WeaponBringSec:Dropdown({
-    Title = "Chọn Vũ Khí Trong Balo", Values = initialTools, Value = initialTools[1], Flag = "SelectedWeapon",
+    Title = "Select Weapon From Backpack", Values = initialTools, Value = initialTools[1], Flag = "SelectedWeapon",
     Callback = function(v)
         Settings.SelectedWeapon = v
-        UI:Notify({Title = "Weapon", Content = "Đã chọn: " .. v, Kind = "info", Duration = 1.5})
+        UI:Notify({Title = "Weapon", Content = "Selected: " .. v, Kind = "info", Duration = 1.5})
     end,
 })
 WeaponBringSec:Button({
-    Title = "Làm Mới Vũ Khí", Icon = "refresh-cw",
+    Title = "Refresh Weapons",
     Callback = function()
         local tools = GetToolNames()
         pcall(function()
             if WeaponDropdown.Refresh then WeaponDropdown:Refresh(tools)
             elseif WeaponDropdown.SetValues then WeaponDropdown:SetValues(tools) end
         end)
-        UI:Notify({Title = "Weapons", Content = "Tìm thấy " .. #tools .. " món: " .. table.concat(tools, ", "), Kind = "info", Duration = 2.5})
+        UI:Notify({Title = "Weapons", Content = "Found " .. #tools .. " weapon(s): " .. table.concat(tools, ", "), Kind = "info", Duration = 2.5})
     end,
 })
 WeaponBringSec:Toggle({
     Title = "Bring Mobs", Value = true, Flag = "BringMobs",
     Callback = function(v)
         Settings.BringMob = v
-        UI:Notify({Title = "Bring Mob", Content = v and "ON - Kéo mob về" or "OFF - Farm thường", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "Bring Mob", Content = v and "ON - Pulling mobs" or "OFF - Normal farm", Kind = v and "success" or "info", Duration = 2})
     end,
 })
 WeaponBringSec:Slider({
@@ -2836,7 +5730,7 @@ WeaponBringSec:Slider({
     Callback = function(v) Settings.BringOffset = v end,
 })
 WeaponBringSec:Slider({
-    Title = "Độ Cao Treo (Hover Height)", Step = 1, Value = {Min = 5, Max = 35, Default = 14}, Flag = "HoverHeight",
+    Title = "Hover Height", Step = 1, Value = {Min = 5, Max = 35, Default = 14}, Flag = "HoverHeight",
     Callback = function(v) Settings.HoverHeight = v end,
 })
 WeaponBringSec:Slider({
@@ -2852,27 +5746,27 @@ WeaponBringSec:Slider({
     Callback = function(v) Settings.SafeHP = v end,
 })
 WeaponBringSec:Toggle({
-    Title = "Auto Haki Vũ Trang", Value = true, Flag = "AutoHaki",
+    Title = "Auto Buso Haki", Value = true, Flag = "AutoHaki",
     Callback = function(v)
         Settings.AutoHaki = v
         if v then task.spawn(function() pcall(ActivateHaki) end) end
     end,
 })
 WeaponBringSec:Dropdown({
-    Title = "Phím Haki (Fallback)", Values = {"G", "J", "T", "H"}, Value = "G", Flag = "HakiKey",
+    Title = "Haki Key (Fallback)", Values = {"G", "J", "T", "H"}, Value = "G", Flag = "HakiKey",
     Callback = function(v) Settings.HakiKey = v end,
 })
 
-local StatsReSec = FSet:Section({Title = "Cộng Stats & ReAttack", Side = "Right"})
+local StatsReSec = FSet:Section({Title = "Auto Stats & ReAttack", Side = "Right"})
 StatsReSec:Toggle({
-    Title = "Auto Cộng Stats", Value = false, Flag = "AutoStats",
+    Title = "Auto Upgrade Stats", Value = false, Flag = "AutoStats",
     Callback = function(v)
         Settings.AutoStats = v
-        UI:Notify({Title = "Auto Stats", Content = v and "Đang tự cộng điểm" or "Đã tắt", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "Auto Stats", Content = v and "Auto-upgrading stats" or "Disabled", Kind = v and "success" or "info", Duration = 2})
     end,
 })
 StatsReSec:Dropdown({
-    Title = "Chọn Stats", Multi = true, Values = {"Melee", "Defense", "Sword", "Fruit"}, Value = {"Melee", "Defense"}, Flag = "StatsList",
+    Title = "Select Stats", Multi = true, Values = {"Melee", "Defense", "Sword", "Fruit"}, Value = {"Melee", "Defense"}, Flag = "StatsList",
     Callback = function(list)
         if type(list) == "table" then
             Settings.StatsList = list
@@ -2880,15 +5774,15 @@ StatsReSec:Dropdown({
     end,
 })
 StatsReSec:Slider({
-    Title = "Điểm Mỗi Lần", Step = 1, Value = {Min = 1, Max = 50, Default = 3}, Flag = "StatsPoints",
+    Title = "Points Per Upgrade", Step = 1, Value = {Min = 1, Max = 50, Default = 3}, Flag = "StatsPoints",
     Callback = function(v) Settings.StatsPoints = v end,
 })
 StatsReSec:Toggle({
-    Title = "Enable ReAttack (Spam M1 Nền)", Value = false, Flag = "ReAttack",
+    Title = "Enable ReAttack (Background M1 Spam)", Value = false, Flag = "ReAttack",
     Callback = function(v)
         Settings.ReAttack = v
         _m1Count = 0
-        UI:Notify({Title = "ReAttack", Content = v and "ON - M1 Spam nền đã bật!" or "OFF", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "ReAttack", Content = v and "ON - Background M1 spam enabled!" or "OFF", Kind = v and "success" or "info", Duration = 2})
     end,
 })
 StatsReSec:Toggle({
@@ -2896,9 +5790,47 @@ StatsReSec:Toggle({
     Callback = function(v) Settings.BurstSkills = v end,
 })
 StatsReSec:Dropdown({
-    Title = "M1 Method", Values = {"Activate", "Remote", "Both"}, Value = "Activate", Flag = "M1Method",
+    Title = "M1 Method", Values = {"Activate", "Remote", "Both"}, Value = "Both", Flag = "M1Method",
     Callback = function(v) Settings.M1Method = v end,
 })
+do
+    local function getAccessoryNames()
+        local list = {}
+        local accFolder = Player:FindFirstChild("Accessories")
+        if accFolder then
+            for _, child in ipairs(accFolder:GetChildren()) do
+                table.insert(list, child.Name)
+            end
+        end
+        table.sort(list)
+        if #list == 0 then return {"None"} end
+        return list
+    end
+    local initAcc = getAccessoryNames()
+    local AccDropdown = StatsReSec:Dropdown({
+        Title = "Select Accessory", Values = initAcc, Value = initAcc[1], Flag = "SelectedAccessory",
+        Callback = function(v) Settings.SelectedAccessory = (v ~= "None") and v or "" end,
+    })
+    StatsReSec:Button({
+        Title = "Refresh Accessories",
+        Callback = function()
+            local list = getAccessoryNames()
+            pcall(function()
+                if AccDropdown.Refresh then AccDropdown:Refresh(list)
+                elseif AccDropdown.SetValues then AccDropdown:SetValues(list) end
+            end)
+            UI:Notify({Title = "Accessories", Content = "Found " .. #list .. " accessory item(s)", Kind = "info", Duration = 2})
+        end,
+    })
+    StatsReSec:Toggle({
+        Title = "Auto Equip Accessory", Value = false, Flag = "AutoEquipAccessory",
+        Callback = function(v) Settings.AutoEquipAccessory = v end,
+    })
+    StatsReSec:Toggle({
+        Title = "Auto Passive Tree", Value = false, Flag = "AutoPassiveTree",
+        Callback = function(v) Settings.AutoPassiveTree = v end,
+    })
+end
 StatsReSec:Slider({
     Title = "Swap Interval", Step = 0.02, Value = {Min = 0.08, Max = 1, Default = 0.22}, Flag = "SwapInterval",
     Callback = function(v) Settings.SwapInterval = v end,
@@ -2908,7 +5840,7 @@ StatsReSec:Slider({
     Callback = function(v) Settings.M1Rate = v end,
 })
 StatsReSec:Input({
-    Title = "Weapons ReAttack (phẩy cách)", Placeholder = "Trống = tự xoay vòng balo", Flag = "WeaponInput",
+    Title = "ReAttack Weapons (comma-separated)", Placeholder = "Empty = auto cycle backpack", Flag = "WeaponInput",
     Callback = function(text)
         local weapons = {}
         for name in text:gmatch("[^,]+") do
@@ -2918,15 +5850,18 @@ StatsReSec:Input({
         Settings.ReAttackWeapons = weapons
     end,
 })
-local ReStatusParagraph = StatsReSec:Paragraph({
-    Title = "📊 ReAttack Status",
+ReStatusParagraph = StatsReSec:Paragraph({
+    Title = "ReAttack Status",
     Desc = "Status: OFF\nM1 Count: 0",
 })
+
+end
 
 -- ============================================================
 -- 4. TAB: Activities
 -- ============================================================
-local ActTab = Window:Tab({Title = "Activities", Icon = "target"})
+do
+local ActTab = Window:Tab({Title = "Activities"})
 
 local BossSec = ActTab:Section({Title = "Boss Farm", Side = "Left"})
 BossSec:Dropdown({
@@ -2941,7 +5876,7 @@ BossSec:Toggle({
     Callback = function(v)
         Settings.AutoBoss = v
         if v then
-            UI:Notify({Title = "Boss", Content = "Farm boss bật!", Kind = "success", Duration = 2})
+            UI:Notify({Title = "Boss", Content = "Boss farm enabled!", Kind = "success", Duration = 2})
         elseif not Settings.AutoFarm and not Settings.AutoFarmCustomMob then
             DisableHoverLock()
         end
@@ -2949,15 +5884,11 @@ BossSec:Toggle({
 })
 local bossListText = ""
 for _, b in ipairs(BossData) do
-    bossListText = bossListText .. string.format("⚔ %s - Lv.%d (Sea %d)\n", b.Name, b.MinLevel, b.Sea)
+    bossListText = bossListText .. string.format("- %s - Lv.%d (Sea %d)\n", b.Name, b.MinLevel, b.Sea)
 end
-BossSec:Paragraph({Title = "Danh sách Boss", Desc = bossListText})
+BossSec:Paragraph({Title = "Boss List", Desc = bossListText})
 
-local EventSec = ActTab:Section({Title = "Sea Events & Raid", Side = "Right"})
-EventSec:Toggle({
-    Title = "Auto Dungeon / Raid", Value = false, Flag = "AutoDungeon",
-    Callback = function(v) Settings.AutoDungeon = v end,
-})
+local EventSec = ActTab:Section({Title = "Sea Events", Side = "Left"})
 EventSec:Toggle({
     Title = "Auto Sea King / Hydra", Value = false, Flag = "AutoSeaEvent",
     Callback = function(v) Settings.AutoSeaEvent = v end,
@@ -2971,12 +5902,196 @@ EventSec:Toggle({
     Callback = function(v) Settings.AutoRandomFruit = v end,
 })
 
+local DungeonSec = ActTab:Section({Title = "Auto Dungeon & Co-op", Side = "Right"})
+DungeonSec:Dropdown({
+    Title = "Select Dungeon Mode",
+    Values = {"Easy", "Normal", "Hard", "Insane", "All / Auto"},
+    Value = "Normal",
+    Flag = "DungeonDifficulty",
+    Callback = function(v)
+        Settings.DungeonMode = v
+        Settings.DungeonDifficulty = v
+        UI:Notify({Title = "Dungeon Mode", Content = "Selected: " .. v, Kind = "info", Duration = 2})
+    end,
+})
+DungeonSec:Dropdown({
+    Title = "Dungeon Combat Style",
+    Values = {"Hover Above (Tween)", "Behind Target", "Safe Evasion"},
+    Value = "Hover Above (Tween)",
+    Flag = "DungeonPlayMode",
+    Callback = function(v)
+        Settings.DungeonPlayMode = v
+        UI:Notify({Title = "Dungeon Style", Content = "Style: " .. v, Kind = "info", Duration = 2})
+    end,
+})
+DungeonSec:Toggle({
+    Title = "Auto Dungeon",
+    Value = false,
+    Flag = "AutoDungeon",
+    Callback = function(v)
+        Settings.AutoDungeon = v
+        if v then
+            Settings.AutoFarm = false
+            Settings.AutoFarmCustomMob = false
+            Settings.AutoBoss = false
+            DisableHoverLock()
+            UI:Notify({
+                Title = "Auto Dungeon",
+                Content = "ON - Mode: " .. (Settings.DungeonMode or "Normal") .. " (" .. (Settings.DungeonPlayMode or "Hover") .. ")",
+                Kind = "success",
+                Duration = 2,
+            })
+        else
+            if Settings.CleanupDungeon then Settings.CleanupDungeon() end
+            UI:Notify({Title = "Auto Dungeon", Content = "OFF", Kind = "info", Duration = 2})
+        end
+    end,
+})
+do
+    local initFriends = GetPlayerNames()
+    local FriendsDropdown = DungeonSec:Dropdown({
+        Title = "Shared Friends (Select Teammates)",
+        Multi = true,
+        Values = initFriends,
+        Value = {},
+        Flag = "DungeonFriends",
+        Callback = function(val)
+            local parsed = _hakiState.parseDungeonFriends and _hakiState.parseDungeonFriends(val) or {}
+            Settings.DungeonFriends = parsed
+            Settings.DungeonPartner = parsed[1] or ""
+        end,
+    })
+    task.delay(1.5, function()
+        if not _running or not _hakiState.getDungeonFriendList then return end
+        local fList = _hakiState.getDungeonFriendList()
+        pcall(function()
+            if FriendsDropdown.Refresh then FriendsDropdown:Refresh(fList)
+            elseif FriendsDropdown.SetValues then FriendsDropdown:SetValues(fList) end
+        end)
+    end)
+    DungeonSec:Button({
+        Title = "Refresh Friends List",
+        Callback = function()
+            local fList = (_hakiState.getDungeonFriendList and _hakiState.getDungeonFriendList()) or GetPlayerNames()
+            pcall(function()
+                if FriendsDropdown.Refresh then FriendsDropdown:Refresh(fList)
+                elseif FriendsDropdown.SetValues then FriendsDropdown:SetValues(fList) end
+            end)
+            local friendCount = 0
+            for _, entry in ipairs(fList) do
+                if entry:find("%[Friend%]$") then
+                    friendCount = friendCount + 1
+                end
+            end
+            UI:Notify({
+                Title = "Shared Friends",
+                Content = string.format("Found %d player(s) (%d Roblox Friend(s))", (#fList == 1 and fList[1] == "None") and 0 or #fList, friendCount),
+                Kind = "info",
+                Duration = 2.5,
+            })
+        end,
+    })
+end
+DungeonSec:Toggle({
+    Title = "Friends Co-op Mode (Go Together)",
+    Value = false,
+    Flag = "DungeonPartnerMode",
+    Callback = function(v)
+        Settings.DungeonPartnerMode = v
+        local summary = (_hakiState.getDungeonFriendSummary and _hakiState.getDungeonFriendSummary()) or (v and "ON" or "OFF")
+        UI:Notify({
+            Title = "Friends Co-op Mode",
+            Content = v and ("Enabled - " .. summary) or "Disabled (Solo Mode)",
+            Kind = v and "success" or "info",
+            Duration = 2,
+        })
+    end,
+})
+DungeonSec:Toggle({
+    Title = "Auto Detect Roblox Friends",
+    Value = true,
+    Flag = "DungeonAutoFriends",
+    Callback = function(v)
+        Settings.DungeonAutoFriends = v
+    end,
+})
+DungeonSec:Slider({
+    Title = "Dungeon Tween Speed",
+    Step = 10,
+    Value = {Min = 100, Max = 350, Default = 280},
+    Flag = "DungeonTweenSpeed",
+    Callback = function(v) Settings.DungeonTweenSpeed = v end,
+})
+DungeonSec:Slider({
+    Title = "Dungeon Safe HP (%)",
+    Step = 5,
+    Value = {Min = 0, Max = 75, Default = 25},
+    Flag = "DungeonSafeHP",
+    Callback = function(v)
+        Settings.DungeonLowHPThreshold = v / 100
+        Settings.DungeonRecoveryHPThreshold = math.min(0.95, math.max(0.55, (v / 100) + 0.25))
+    end,
+})
+DungeonStatusParagraph = DungeonSec:Paragraph({
+    Title = "Dungeon Status",
+    Desc = "Mode: Normal | Style: Hover Above (Tween)\nFriends Co-op: OFF (Solo)\nStatus: Idle",
+})
+DungeonSec:Button({
+    Title = "TP To Raid Entrance",
+    Callback = function()
+        DisableHoverLock()
+        FastTeleport(CFrame.new(-4567, 223, -80), true)
+        UI:Notify({Title = "Raid Entrance", Content = "Teleported to Raid Entrance!", Kind = "success", Duration = 2})
+    end,
+})
+
+local ProgSec = ActTab:Section({Title = "Progression & Events", Side = "Right"})
+ProgSec:Toggle({
+    Title = "Auto Sea 2 Unlock Quest", Value = false, Flag = "AutoSea2Unlock",
+    Callback = function(v) Settings.AutoSea2Unlock = v end,
+})
+ProgSec:Toggle({
+    Title = "Auto Sea 3 Unlock Quest", Value = false, Flag = "AutoSea3Unlock",
+    Callback = function(v) Settings.AutoSea3Unlock = v end,
+})
+ProgSec:Toggle({
+    Title = "Auto Haki V2 Quest", Value = false, Flag = "AutoHakiV2",
+    Callback = function(v) Settings.AutoHakiV2 = v end,
+})
+ProgSec:Toggle({
+    Title = "Auto Observation V2 Quest", Value = false, Flag = "AutoObserveV2",
+    Callback = function(v) Settings.AutoObserveV2 = v end,
+})
+ProgSec:Toggle({
+    Title = "Auto Kill Event Minions", Value = false, Flag = "AutoKillMinion",
+    Callback = function(v) Settings.AutoKillMinion = v end,
+})
+ProgSec:Toggle({
+    Title = "Auto Farm Candy", Value = false, Flag = "AutoFarmCandy",
+    Callback = function(v) Settings.AutoFarmCandy = v end,
+})
+ProgSec:Toggle({
+    Title = "Auto Summon Jack o Lantern", Value = false, Flag = "AutoSummonJackO",
+    Callback = function(v) Settings.AutoSummonJackO = v end,
+})
+ProgSec:Toggle({
+    Title = "Auto Kill Jack o Lantern", Value = false, Flag = "AutoKillJackO",
+    Callback = function(v) Settings.AutoKillJackO = v end,
+})
+ProgSec:Toggle({
+    Title = "Auto Kill Skull King", Value = false, Flag = "AutoKillSkullKing",
+    Callback = function(v) Settings.AutoKillSkullKing = v end,
+})
+
+end
+
 -- ============================================================
 -- 5. TAB: skill hold
 -- ============================================================
-local SkillTab = Window:Tab({Title = "skill hold", Icon = "zap"})
+do
+local SkillTab = Window:Tab({Title = "skill hold"})
 
-local SkillToggleSec = SkillTab:Section({Title = "Bật / Tắt Skill", Side = "Left"})
+local SkillToggleSec = SkillTab:Section({Title = "Enable / Disable Skills", Side = "Left"})
 SkillToggleSec:Toggle({
     Title = "Auto Combo (Skill)", Value = true, Flag = "SkillAutoCombo",
     Callback = function(v) Settings.AutoCombo = v end,
@@ -2990,7 +6105,7 @@ for _, key in ipairs(SkillHoldOrder) do
     })
 end
 
-local SkillHoldSec = SkillTab:Section({Title = "Thời Gian Giữ (Hold Time)", Side = "Right"})
+local SkillHoldSec = SkillTab:Section({Title = "Hold Duration (Hold Time)", Side = "Right"})
 for _, key in ipairs(SkillHoldOrder) do
     SkillHoldSec:Slider({
         Title = "Hold " .. key .. " (s)", Step = 0.1, Value = {Min = 0, Max = 3, Default = Settings.SkillHold[key].Hold}, Flag = "HoldSkill_" .. key,
@@ -3008,9 +6123,12 @@ SkillHoldSec:Slider({
     Callback = function(v) Settings.SkillDelay = v end,
 })
 
+end
+
 -- ============================================================
 -- 6, 7, 8. TABS: First Sea, Second sea, Third Sea
 -- ============================================================
+do
 local function BuildSeaTab(tab, seaNumber, seaTitle)
     local seaQuests = {}
     local seaLabels = {}
@@ -3035,7 +6153,7 @@ local function BuildSeaTab(tab, seaNumber, seaTitle)
 
     local LeftSec = tab:Section({Title = "Farm & Teleport", Side = "Left"})
     LeftSec:Dropdown({
-        Title = "Chọn Quái / Quest", Values = seaLabels, Value = seaLabels[1], Flag = "Sea" .. seaNumber .. "Mob",
+        Title = "Select Mob / Quest", Values = seaLabels, Value = seaLabels[1], Flag = "Sea" .. seaNumber .. "Mob",
         Callback = function(v)
             selectedQuest = findQuestByLabel(v)
             if Settings.AutoFarmCustomMob then
@@ -3044,13 +6162,13 @@ local function BuildSeaTab(tab, seaNumber, seaTitle)
         end,
     })
     LeftSec:Toggle({
-        Title = "Auto Farm Mob Đã Chọn", Value = false, Flag = "FarmCustomSea" .. seaNumber,
+        Title = "Auto Farm Selected Mob", Value = false, Flag = "FarmCustomSea" .. seaNumber,
         Callback = function(v)
             if v then
                 Settings.AutoFarm = false
                 Settings.CustomMob = selectedQuest
                 Settings.AutoFarmCustomMob = true
-                UI:Notify({Title = seaTitle, Content = "Đang farm: " .. (selectedQuest and selectedQuest.MobName or ""), Kind = "success", Duration = 2})
+                UI:Notify({Title = seaTitle, Content = "Farming: " .. (selectedQuest and selectedQuest.MobName or ""), Kind = "success", Duration = 2})
             else
                 Settings.AutoFarmCustomMob = false
                 if not Settings.AutoFarm and not Settings.AutoBoss and not _sea2EventActive then DisableHoverLock() end
@@ -3058,31 +6176,31 @@ local function BuildSeaTab(tab, seaNumber, seaTitle)
         end,
     })
     LeftSec:Button({
-        Title = "Teleport Đến Đảo Này", Icon = "map-pin",
+        Title = "Teleport To This Island",
         Callback = function()
             if selectedQuest then
                 DisableHoverLock()
                 FastTeleport(selectedQuest.MobArea, true)
-                UI:Notify({Title = "Teleport", Content = "Đã TP tới bãi " .. selectedQuest.MobName, Kind = "success", Duration = 2})
+                UI:Notify({Title = "Teleport", Content = "Teleported to " .. selectedQuest.MobName .. " area", Kind = "success", Duration = 2})
             end
         end,
     })
     LeftSec:Button({
-        Title = "Teleport Đến NPC Nhận Quest", Icon = "flag",
+        Title = "Teleport To Quest NPC",
         Callback = function()
             if selectedQuest then
                 DisableHoverLock()
                 FastTeleport(selectedQuest.NPCPos, true)
-                UI:Notify({Title = "Teleport", Content = "Đã TP tới " .. selectedQuest.QuestNPC, Kind = "success", Duration = 2})
+                UI:Notify({Title = "Teleport", Content = "Teleported to " .. selectedQuest.QuestNPC, Kind = "success", Duration = 2})
             end
         end,
     })
 
-    local RightSec = tab:Section({Title = "Thông Tin " .. seaTitle, Side = "Right"})
+    local RightSec = tab:Section({Title = seaTitle .. " Info", Side = "Right"})
     local bossText = "\n--- Bosses ---\n"
     for _, b in ipairs(BossData) do
         if b.Sea == seaNumber then
-            bossText = bossText .. string.format("⚔ %s (Lv.%d)\n", b.Name, b.MinLevel)
+            bossText = bossText .. string.format("- %s (Lv.%d)\n", b.Name, b.MinLevel)
         end
     end
     RightSec:Paragraph({
@@ -3091,23 +6209,23 @@ local function BuildSeaTab(tab, seaNumber, seaTitle)
     })
 end
 
-local Sea1Tab = Window:Tab({Title = "First Sea", Icon = "compass"})
+local Sea1Tab = Window:Tab({Title = "First Sea"})
 BuildSeaTab(Sea1Tab, 1, "First Sea (Lv.1-1350)")
 
-local Sea2Tab = Window:Tab({Title = "Second sea", Icon = "compass"})
+local Sea2Tab = Window:Tab({Title = "Second sea"})
 
--- Left: SK Hydra, Sea Beast & Thuyền Ma (Sea 2)
-local Sea2EventSec = Sea2Tab:Section({Title = "SK Hydra, Sea Beast & Thuyền Ma", Side = "Left"})
-local Sea2TimerParagraph = Sea2EventSec:Paragraph({
-    Title = "⏱ Timer SK Hydra, Sea Beast & Thuyền Ma",
-    Desc = "Đang tải dữ liệu...",
+-- Left: SK Hydra, Sea Beast & Ghost Ship (Sea 2)
+local Sea2EventSec = Sea2Tab:Section({Title = "SK Hydra, Sea Beast & Ghost Ship", Side = "Left"})
+Sea2TimerParagraph = Sea2EventSec:Paragraph({
+    Title = "SK Hydra, Sea Beast & Ghost Ship Timer",
+    Desc = "Loading data...",
 })
 Sea2EventSec:Toggle({
     Title = "Auto Kill Hydra (SK Hydra)", Value = false, Flag = "AutoKillHydra",
     Callback = function(v)
         Settings.AutoKillHydra = v
         if not v then _lastHydraPos = nil end
-        UI:Notify({Title = "SK Hydra", Content = v and "ON - Tự săn SK Hydra" or "OFF", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "SK Hydra", Content = v and "ON - Hunting SK Hydra" or "OFF", Kind = v and "success" or "info", Duration = 2})
     end,
 })
 Sea2EventSec:Toggle({
@@ -3115,30 +6233,30 @@ Sea2EventSec:Toggle({
     Callback = function(v)
         Settings.AutoKillSeaBeast = v
         if not v then _lastSeaBeastPos = nil end
-        UI:Notify({Title = "Sea Beast", Content = v and "ON - Tự săn Sea Beast" or "OFF", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "Sea Beast", Content = v and "ON - Hunting Sea Beast" or "OFF", Kind = v and "success" or "info", Duration = 2})
     end,
 })
 Sea2EventSec:Toggle({
-    Title = "Auto Kill Thuyền Ma (Ghost Ship)", Value = false, Flag = "AutoKillGhostShip",
+    Title = "Auto Kill Ghost Ship", Value = false, Flag = "AutoKillGhostShip",
     Callback = function(v)
         Settings.AutoKillGhostShip = v
         Settings.AutoGhostShip = v
         if not v then _lastGhostShipPos = nil end
-        UI:Notify({Title = "Thuyền Ma", Content = v and "ON - Tự săn Thuyền Ma" or "OFF", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "Ghost Ship", Content = v and "ON - Hunting Ghost Ship" or "OFF", Kind = v and "success" or "info", Duration = 2})
     end,
 })
 Sea2EventSec:Toggle({
-    Title = "Auto TP Nhặt Rương Hydra / Sea Beast", Value = true, Flag = "AutoCollectHydraChest",
+    Title = "Auto TP Collect Hydra / Sea Beast Chest", Value = true, Flag = "AutoCollectHydraChest",
     Callback = function(v) Settings.AutoCollectHydraChest = v end,
 })
 Sea2EventSec:Button({
-    Title = "TP Tới Rương Sea Event Ngay", Icon = "gift",
+    Title = "TP To Sea Event Chest Now",
     Callback = function()
         task.spawn(function()
             local ok = CollectSeaEventChest(nil, HumanoidRootPart and HumanoidRootPart.Position, false)
             UI:Notify({
-                Title = "Rương Sea Event",
-                Content = ok and "Đã TP và nhặt rương thành công!" or "Không tìm thấy rương Hydra / Sea Beast / Thuyền Ma trên map",
+                Title = "Sea Event Chest",
+                Content = ok and "Teleported and collected chest successfully!" or "No Hydra / Sea Beast / Ghost Ship chest found on map",
                 Kind = ok and "success" or "info",
                 Duration = 2.5,
             })
@@ -3152,32 +6270,32 @@ Sea2DragonSec:Toggle({
     Title = "Auto Kill Dragon", Value = false, Flag = "AutoKillDragon",
     Callback = function(v)
         Settings.AutoKillDragon = v
-        UI:Notify({Title = "Dragon Boss", Content = v and "ON - Tự diệt Dragon" or "OFF", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "Dragon Boss", Content = v and "ON - Hunting Dragon Boss" or "OFF", Kind = v and "success" or "info", Duration = 2})
     end,
 })
 Sea2DragonSec:Toggle({
-    Title = "Auto Spam Dragon (Auto Triệu Hồi)", Value = false, Flag = "AutoSpawnDragon",
+    Title = "Auto Spam Dragon (Auto Summon)", Value = false, Flag = "AutoSpawnDragon",
     Callback = function(v)
         Settings.AutoSpawnDragon = v
-        UI:Notify({Title = "Spam Dragon", Content = v and "ON - Tự triệu hồi khi có Orb" or "OFF", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "Spam Dragon", Content = v and "ON - Auto summoning with Orb" or "OFF", Kind = v and "success" or "info", Duration = 2})
     end,
 })
 Sea2DragonSec:Toggle({
-    Title = "Auto Cày Dragon Orb", Value = false, Flag = "AutoFarmDragonOrb",
+    Title = "Auto Farm Dragon Orb", Value = false, Flag = "AutoFarmDragonOrb",
     Callback = function(v)
         Settings.AutoFarmDragonOrb = v
-        UI:Notify({Title = "Dragon Orb", Content = v and "ON - Đang cày Dragon Orb" or "OFF", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "Dragon Orb", Content = v and "ON - Farming Dragon Orb" or "OFF", Kind = v and "success" or "info", Duration = 2})
     end,
 })
 Sea2DragonSec:Button({
-    Title = "Triệu Hồi Dragon Ngay (1 Lần)", Icon = "flame",
+    Title = "Summon Dragon Now (Once)",
     Callback = function()
         task.spawn(function()
             local orbCount = CountDragonOrbs()
             SpawnDragonWithOrb()
             UI:Notify({
-                Title = "Triệu Hồi Dragon",
-                Content = orbCount > 0 and ("Đã gửi lệnh triệu hồi (Orb: " .. orbCount .. ")") or "Không thấy Dragon Orb trong túi, vẫn thử kích hoạt Shrine",
+                Title = "Summon Dragon",
+                Content = orbCount > 0 and ("Sent summon request (Orbs: " .. orbCount .. ")") or "No Dragon Orb found in bag, trying Shrine anyway",
                 Kind = orbCount > 0 and "success" or "info",
                 Duration = 2.5,
             })
@@ -3185,76 +6303,139 @@ Sea2DragonSec:Button({
     end,
 })
 Sea2DragonSec:Button({
-    Title = "TP Đến Đảo Rồng (Dragon Shrine)", Icon = "map-pin",
+    Title = "TP To Dragon Island (Dragon Shrine)",
     Callback = function()
         local shrinePart = FindDragonShrinePart()
         DisableHoverLock()
         if shrinePart then
             FastTeleport(shrinePart.CFrame + Vector3.new(0, 5, 0), true)
-            UI:Notify({Title = "Dragon Shrine", Content = "Đã TP tới " .. shrinePart.Name, Kind = "success", Duration = 2})
+            UI:Notify({Title = "Dragon Shrine", Content = "Teleported to " .. shrinePart.Name, Kind = "success", Duration = 2})
         else
             FastTeleport(CFrame.new(-5400, 310, -4600), true)
-            UI:Notify({Title = "Dragon Shrine", Content = "Đã TP tới khu vực Đảo Xương / Shrine", Kind = "info", Duration = 2})
+            UI:Notify({Title = "Dragon Shrine", Content = "Teleported to Skull Island / Shrine area", Kind = "info", Duration = 2})
         end
     end,
 })
 
 BuildSeaTab(Sea2Tab, 2, "Second Sea (Lv.1350-2700)")
 
-local Sea3Tab = Window:Tab({Title = "Third Sea", Icon = "compass"})
+local Sea3Tab = Window:Tab({Title = "Third Sea"})
+do
+    local Sea3EventSec = Sea3Tab:Section({Title = "Third Sea Events & Bosses", Side = "Left"})
+    _hakiState.sea3TimerParagraph = Sea3EventSec:Paragraph({
+        Title = "Sea 3 Live Timers",
+        Desc = "Sea 3 Timer: Checking...\nAbyssal Tyrant: Checking...\nChaos Kraken: Checking...\nDeepsea Crusher: Checking...\nDrakenfyr: Checking...",
+    })
+    Sea3EventSec:Toggle({
+        Title = "Auto Abyssal Tyrant (SeaDragon)", Value = false, Flag = "AutoAbyssalTyrant",
+        Callback = function(v) Settings.AutoAbyssalTyrant = v end,
+    })
+    Sea3EventSec:Toggle({
+        Title = "Auto Chaos Kraken (FuryTentacle)", Value = false, Flag = "AutoChaosKraken",
+        Callback = function(v) Settings.AutoChaosKraken = v end,
+    })
+    Sea3EventSec:Toggle({
+        Title = "Auto Deepsea Crusher (Crab)", Value = false, Flag = "AutoDeepseaCrusher",
+        Callback = function(v) Settings.AutoDeepseaCrusher = v end,
+    })
+    Sea3EventSec:Toggle({
+        Title = "Auto Drakenfyr (ThirdSeaDragon)", Value = false, Flag = "AutoDrakenfyr",
+        Callback = function(v) Settings.AutoDrakenfyr = v end,
+    })
+end
 BuildSeaTab(Sea3Tab, 3, "Third Sea (Lv.2700-5450)")
+
+end
 
 -- ============================================================
 -- 9. TAB: all sea
 -- ============================================================
-local AllSeaTab = Window:Tab({Title = "all sea", Icon = "globe"})
+do
+local AllSeaTab = Window:Tab({Title = "all sea"})
 
 local CollectSec = AllSeaTab:Section({Title = "Auto Collect", Side = "Left"})
 CollectSec:Toggle({
-    Title = "Auto Nhặt Rương (Chest)", Value = false, Flag = "AutoChest",
+    Title = "Auto Collect Chests", Value = false, Flag = "AutoChest",
     Callback = function(v)
         Settings.AutoChest = v
-        UI:Notify({Title = "Auto Chest", Content = v and "Đang tìm nhặt rương..." or "Đã tắt", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "Auto Chest", Content = v and "Searching for chests..." or "Disabled", Kind = v and "success" or "info", Duration = 2})
     end,
 })
 CollectSec:Toggle({
-    Title = "Auto Nhặt Trái (Fruit Sniper)", Value = false, Flag = "AutoFruitSniper",
+    Title = "Auto Collect Fruits (Fruit Sniper)", Value = false, Flag = "AutoFruitSniper",
     Callback = function(v)
         Settings.AutoFruitSniper = v
-        UI:Notify({Title = "Fruit Sniper", Content = v and "Đang quét trái ác quỷ..." or "Đã tắt", Kind = v and "success" or "info", Duration = 2})
+        UI:Notify({Title = "Fruit Sniper", Content = v and "Scanning for fruits..." or "Disabled", Kind = v and "success" or "info", Duration = 2})
     end,
 })
 CollectSec:Button({
-    Title = "TP Tới Trái Ác Quỷ Trên Map", Icon = "search",
+    Title = "TP To Fruit On Map",
     Callback = function()
         local fruits = FindDroppedFruits()
         if #fruits > 0 then
             CollectTargetPart(fruits[1].part)
-            UI:Notify({Title = "Fruit Found", Content = "Đã TP tới: " .. fruits[1].obj.Name, Kind = "success", Duration = 2.5})
+            UI:Notify({Title = "Fruit Found", Content = "Teleported to: " .. fruits[1].obj.Name, Kind = "success", Duration = 2.5})
         else
-            UI:Notify({Title = "Fruit", Content = "Không có trái nào rơi trên map", Kind = "info", Duration = 2})
+            UI:Notify({Title = "Fruit", Content = "No dropped fruits found on map", Kind = "info", Duration = 2})
         end
     end,
 })
 
-local UtilSec = AllSeaTab:Section({Title = "Tiện Ích Chung", Side = "Right"})
+local UtilSec = AllSeaTab:Section({Title = "General Utilities", Side = "Right"})
 UtilSec:Toggle({
-    Title = "Auto Haki Quan Sát (Ken)", Value = false, Flag = "AutoKenHaki",
+    Title = "Auto Observation Haki (Ken)", Value = false, Flag = "AutoKenHaki",
     Callback = function(v) Settings.AutoKenHaki = v end,
 })
 UtilSec:Toggle({
-    Title = "Đi Trên Nước (Walk On Water)", Value = true, Flag = "WalkOnWater",
+    Title = "Walk On Water", Value = true, Flag = "WalkOnWater",
     Callback = function(v) Settings.WalkOnWater = v end,
 })
 UtilSec:Toggle({
-    Title = "ReAttack M1 Nền", Value = false, Flag = "AllSeaReAttack",
+    Title = "Background M1 ReAttack", Value = false, Flag = "AllSeaReAttack",
     Callback = function(v) Settings.ReAttack = v end,
 })
+UtilSec:Toggle({
+    Title = "Bring All Workspace Fruits", Value = false, Flag = "BringAllFruits",
+    Callback = function(v) Settings.BringAllFruits = v end,
+})
+UtilSec:Toggle({
+    Title = "Auto Store Fruit", Value = false, Flag = "AutoStoreFruit",
+    Callback = function(v) Settings.AutoStoreFruit = v end,
+})
+UtilSec:Toggle({
+    Title = "Infinite Geppo (Air Jump)", Value = false, Flag = "InfGeppo",
+    Callback = function(v) Settings.InfGeppo = v end,
+})
+
+local EspSec = AllSeaTab:Section({Title = "ESP", Side = "Left"})
+EspSec:Toggle({
+    Title = "ESP Players", Value = false, Flag = "ESPPlayer",
+    Callback = function(v) Settings.ESPPlayer = v end,
+})
+EspSec:Toggle({
+    Title = "ESP Devil Fruits", Value = false, Flag = "ESPFruit",
+    Callback = function(v) Settings.ESPFruit = v end,
+})
+EspSec:Toggle({
+    Title = "ESP Legacy Island", Value = false, Flag = "ESPLegacyIsland",
+    Callback = function(v) Settings.ESPLegacyIsland = v end,
+})
+EspSec:Toggle({
+    Title = "ESP Hydra Island", Value = false, Flag = "ESPHydraIsland",
+    Callback = function(v) Settings.ESPHydraIsland = v end,
+})
+EspSec:Toggle({
+    Title = "ESP Ghost Ship", Value = false, Flag = "ESPGhostShip",
+    Callback = function(v) Settings.ESPGhostShip = v end,
+})
+
+end
 
 -- ============================================================
 -- 10. TAB: Travel
 -- ============================================================
-local TravelTab = Window:Tab({Title = "Travel", Icon = "map"})
+do
+local TravelTab = Window:Tab({Title = "Travel"})
 
 local function BuildSeaIslandLists(seaNum)
     local names, map = {}, {}
@@ -3277,104 +6458,205 @@ local s2Names, s2Map = BuildSeaIslandLists(2)
 local s3Names, s3Map = BuildSeaIslandLists(3)
 local selS1, selS2, selS3 = s1Names[1], s2Names[1], s3Names[1]
 
-local IslandTPSec = TravelTab:Section({Title = "Teleport Đảo Theo Sea", Side = "Left"})
+local IslandTPSec = TravelTab:Section({Title = "Island Teleport By Sea", Side = "Left"})
 IslandTPSec:Dropdown({
-    Title = "Đảo Sea 1", Values = s1Names, Value = s1Names[1], Flag = "IslandSea1",
+    Title = "Sea 1 Islands", Values = s1Names, Value = s1Names[1], Flag = "IslandSea1",
     Callback = function(v) selS1 = v end,
 })
 IslandTPSec:Button({
-    Title = "Teleport Sea 1 Island", Icon = "navigation",
+    Title = "Teleport Sea 1 Island",
     Callback = function()
         if s1Map[selS1] then DisableHoverLock(); FastTeleport(s1Map[selS1], true) end
     end,
 })
 IslandTPSec:Dropdown({
-    Title = "Đảo Sea 2", Values = s2Names, Value = s2Names[1], Flag = "IslandSea2",
+    Title = "Sea 2 Islands", Values = s2Names, Value = s2Names[1], Flag = "IslandSea2",
     Callback = function(v) selS2 = v end,
 })
 IslandTPSec:Button({
-    Title = "Teleport Sea 2 Island", Icon = "navigation",
+    Title = "Teleport Sea 2 Island",
     Callback = function()
         if s2Map[selS2] then DisableHoverLock(); FastTeleport(s2Map[selS2], true) end
     end,
 })
 IslandTPSec:Dropdown({
-    Title = "Đảo Sea 3", Values = s3Names, Value = s3Names[1], Flag = "IslandSea3",
+    Title = "Sea 3 Islands", Values = s3Names, Value = s3Names[1], Flag = "IslandSea3",
     Callback = function(v) selS3 = v end,
 })
 IslandTPSec:Button({
-    Title = "Teleport Sea 3 Island", Icon = "navigation",
+    Title = "Teleport Sea 3 Island",
     Callback = function()
         if s3Map[selS3] then DisableHoverLock(); FastTeleport(s3Map[selS3], true) end
     end,
 })
 
-local SeaTravelSec = TravelTab:Section({Title = "Chuyển Sea", Side = "Right"})
+local SeaTravelSec = TravelTab:Section({Title = "Sea Travel", Side = "Right"})
 SeaTravelSec:Button({
-    Title = "Teleport First Sea", Icon = "compass",
+    Title = "Teleport First Sea",
     Callback = function()
         TravelToSea(1)
-        UI:Notify({Title = "Travel", Content = "Đang chuyển sang First Sea...", Kind = "info", Duration = 2})
+        UI:Notify({Title = "Travel", Content = "Traveling to First Sea...", Kind = "info", Duration = 2})
     end,
 })
 SeaTravelSec:Button({
-    Title = "Teleport Second Sea", Icon = "compass",
+    Title = "Teleport Second Sea",
     Callback = function()
         TravelToSea(2)
-        UI:Notify({Title = "Travel", Content = "Đang chuyển sang Second Sea...", Kind = "info", Duration = 2})
+        UI:Notify({Title = "Travel", Content = "Traveling to Second Sea...", Kind = "info", Duration = 2})
     end,
 })
 SeaTravelSec:Button({
-    Title = "Teleport Third Sea", Icon = "compass",
+    Title = "Teleport Third Sea",
     Callback = function()
         TravelToSea(3)
-        UI:Notify({Title = "Travel", Content = "Đang chuyển sang Third Sea...", Kind = "info", Duration = 2})
+        UI:Notify({Title = "Travel", Content = "Traveling to Third Sea...", Kind = "info", Duration = 2})
     end,
 })
 SeaTravelSec:Paragraph({
-    Title = "Lưu ý chuyển Sea",
-    Desc = "First Sea: Lv.1+\nSecond Sea: Yêu cầu Lv.2250+\nThird Sea: Yêu cầu Lv.3500+\nCần hoàn thành quest mở khóa Sea tương ứng.",
+    Title = "Sea Travel Notes",
+    Desc = "First Sea: Lv.1+\nSecond Sea: Requires Lv.2250+\nThird Sea: Requires Lv.3500+\nYou must complete the corresponding Sea unlock quest.",
 })
+
+do
+    local function getLiveAreas()
+        local list = {}
+        local areas = Workspace:FindFirstChild("Areas")
+        if areas then
+            for _, a in ipairs(areas:GetChildren()) do
+                table.insert(list, a.Name)
+            end
+        end
+        table.sort(list)
+        if #list == 0 then return {"None"} end
+        return list
+    end
+    local function getLiveNPCs()
+        local list = {}
+        local allNpc = Workspace:FindFirstChild("AllNPC")
+        if allNpc then
+            for _, n in ipairs(allNpc:GetChildren()) do
+                table.insert(list, n.Name)
+            end
+        end
+        table.sort(list)
+        if #list == 0 then return {"None"} end
+        return list
+    end
+
+    local areaList = getLiveAreas()
+    local npcList = getLiveNPCs()
+    local selArea, selNPC = areaList[1], npcList[1]
+
+    local LiveNavSec = TravelTab:Section({Title = "Live Areas & NPCs (Current Sea)", Side = "Right"})
+    local AreaDropdown = LiveNavSec:Dropdown({
+        Title = "Select Workspace Area", Values = areaList, Value = areaList[1], Flag = "LiveAreaSelect",
+        Callback = function(v) selArea = v end,
+    })
+    LiveNavSec:Button({
+        Title = "Refresh Areas",
+        Callback = function()
+            local l = getLiveAreas()
+            selArea = l[1]
+            pcall(function()
+                if AreaDropdown.Refresh then AreaDropdown:Refresh(l)
+                elseif AreaDropdown.SetValues then AreaDropdown:SetValues(l) end
+            end)
+        end,
+    })
+    LiveNavSec:Button({
+        Title = "TP To Selected Area",
+        Callback = function()
+            local areas = Workspace:FindFirstChild("Areas")
+            local target = areas and areas:FindFirstChild(selArea)
+            if target then
+                local cf = target:IsA("BasePart") and target.CFrame or (target:IsA("Model") and target:GetPivot())
+                if cf then
+                    DisableHoverLock()
+                    FastTeleport(cf + Vector3.new(0, 15, 0), true)
+                    UI:Notify({Title = "Area Teleport", Content = "Teleported to " .. selArea, Kind = "success", Duration = 2})
+                    return
+                end
+            end
+            UI:Notify({Title = "Area Teleport", Content = "Area not found in current sea", Kind = "info", Duration = 2})
+        end,
+    })
+
+    local NPCDropdown = LiveNavSec:Dropdown({
+        Title = "Select Workspace NPC", Values = npcList, Value = npcList[1], Flag = "LiveNPCSelect",
+        Callback = function(v) selNPC = v end,
+    })
+    LiveNavSec:Button({
+        Title = "Refresh NPCs",
+        Callback = function()
+            local l = getLiveNPCs()
+            selNPC = l[1]
+            pcall(function()
+                if NPCDropdown.Refresh then NPCDropdown:Refresh(l)
+                elseif NPCDropdown.SetValues then NPCDropdown:SetValues(l) end
+            end)
+        end,
+    })
+    LiveNavSec:Button({
+        Title = "TP To Selected NPC",
+        Callback = function()
+            local allNpc = Workspace:FindFirstChild("AllNPC")
+            local target = allNpc and allNpc:FindFirstChild(selNPC)
+            if target then
+                local r = target:IsA("BasePart") and target or (target:FindFirstChild("HumanoidRootPart") or target.PrimaryPart or target:FindFirstChildOfClass("BasePart"))
+                if r then
+                    DisableHoverLock()
+                    FastTeleport(r.CFrame + Vector3.new(0, 3, 2), true)
+                    UI:Notify({Title = "NPC Teleport", Content = "Teleported to " .. selNPC, Kind = "success", Duration = 2})
+                    return
+                end
+            end
+            UI:Notify({Title = "NPC Teleport", Content = "NPC not found in current sea", Kind = "info", Duration = 2})
+        end,
+    })
+end
+
+end
 
 -- ============================================================
 -- 11. TAB: shop
 -- ============================================================
-local ShopTab = Window:Tab({Title = "shop", Icon = "shopping-cart"})
+do
+local ShopTab = Window:Tab({Title = "shop"})
 
 local StyleList = {"Black Leg", "Electro", "Fishman Karate", "Dragon Claw", "Superhuman", "Death Step", "Sharkman Karate", "Electric Claw"}
 local SkillShopList = {"Buso Haki", "Ken Haki", "Geppo", "Soru"}
 local selStyle, selSkillShop = StyleList[1], SkillShopList[1]
 
-local ShopLeftSec = ShopTab:Section({Title = "Võ & Kiếm & Haki", Side = "Left"})
+local ShopLeftSec = ShopTab:Section({Title = "Styles, Swords & Haki", Side = "Left"})
 ShopLeftSec:Dropdown({
     Title = "Fighting Styles", Values = StyleList, Value = StyleList[1], Flag = "ShopStyle",
     Callback = function(v) selStyle = v end,
 })
 ShopLeftSec:Button({
-    Title = "Mua / Học Võ", Icon = "shopping-bag",
+    Title = "Buy / Learn Style",
     Callback = function()
         local ok = BuyFromShop(selStyle)
-        UI:Notify({Title = "Shop", Content = ok and ("Đã gửi yêu cầu mua: " .. selStyle) or "Không tìm thấy remote shop", Kind = ok and "success" or "error", Duration = 2})
+        UI:Notify({Title = "Shop", Content = ok and ("Sent purchase request: " .. selStyle) or "Shop remote not found", Kind = ok and "success" or "error", Duration = 2})
     end,
 })
 ShopLeftSec:Dropdown({
-    Title = "Haki / Kỹ Năng", Values = SkillShopList, Value = SkillShopList[1], Flag = "ShopSkill",
+    Title = "Haki / Skills", Values = SkillShopList, Value = SkillShopList[1], Flag = "ShopSkill",
     Callback = function(v) selSkillShop = v end,
 })
 ShopLeftSec:Button({
-    Title = "Mua Kỹ Năng", Icon = "shopping-bag",
+    Title = "Buy Skill",
     Callback = function()
         local ok = BuyFromShop(selSkillShop)
-        UI:Notify({Title = "Shop", Content = ok and ("Đã gửi yêu cầu mua: " .. selSkillShop) or "Không tìm thấy remote shop", Kind = ok and "success" or "error", Duration = 2})
+        UI:Notify({Title = "Shop", Content = ok and ("Sent purchase request: " .. selSkillShop) or "Shop remote not found", Kind = ok and "success" or "error", Duration = 2})
     end,
 })
 
 local ShopRightSec = ShopTab:Section({Title = "Fruit Shop / Gacha", Side = "Right"})
 ShopRightSec:Button({
-    Title = "Random Trái Ác Quỷ (Gacha)", Icon = "sparkles",
+    Title = "Random Fruit (Gacha)",
     Callback = function()
         local ok = BuyFromShop("RandomFruit")
-        UI:Notify({Title = "Gacha Fruit", Content = ok and "Đã quay Random Fruit!" or "Không tìm thấy remote Gacha", Kind = ok and "success" or "info", Duration = 2})
+        UI:Notify({Title = "Gacha Fruit", Content = ok and "Rolled Random Fruit!" or "Gacha remote not found", Kind = ok and "success" or "info", Duration = 2})
     end,
 })
 ShopRightSec:Toggle({
@@ -3382,7 +6664,7 @@ ShopRightSec:Toggle({
     Callback = function(v) Settings.AutoRandomFruit = v end,
 })
 ShopRightSec:Button({
-    Title = "TP Đến Fruit Dealer", Icon = "map-pin",
+    Title = "TP To Fruit Dealer",
     Callback = function()
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("Model") and obj.Name:lower():find("fruit") and (obj.Name:lower():find("dealer") or obj.Name:lower():find("shop") or obj.Name:lower():find("gacha")) then
@@ -3390,39 +6672,163 @@ ShopRightSec:Button({
                 if root then
                     DisableHoverLock()
                     FastTeleport(root.CFrame, true)
-                    UI:Notify({Title = "Fruit Dealer", Content = "Đã TP tới " .. obj.Name, Kind = "success", Duration = 2})
+                    UI:Notify({Title = "Fruit Dealer", Content = "Teleported to " .. obj.Name, Kind = "success", Duration = 2})
                     return
                 end
             end
         end
-        UI:Notify({Title = "Fruit Dealer", Content = "Không tìm thấy NPC gần đây", Kind = "info", Duration = 2})
+        UI:Notify({Title = "Fruit Dealer", Content = "No nearby NPC found", Kind = "info", Duration = 2})
     end,
 })
+
+do
+    local function getFuncs()
+        local c = ReplicatedStorage:FindFirstChild("Chest")
+        local r = c and c:FindFirstChild("Remotes")
+        return r and r:FindFirstChild("Functions")
+    end
+
+    local keyList = {"Copper Key", "Iron Key", "Gold Key"}
+    local KeySec = ShopTab:Section({Title = "Keys & Fruit Stock", Side = "Left"})
+    KeySec:Dropdown({
+        Title = "Select Key", Values = keyList, Value = "Copper Key", Flag = "SelectedKey",
+        Callback = function(v) Settings.SelectedKey = v end,
+    })
+    KeySec:Button({
+        Title = "Buy Selected Key (1x)",
+        Callback = function()
+            local funcs = getFuncs()
+            local rem = funcs and funcs:FindFirstChild("BuyKey")
+            local ok = rem and rem:IsA("RemoteFunction") and pcall(function() rem:InvokeServer(Settings.SelectedKey, 1) end)
+            UI:Notify({Title = "Buy Key", Content = ok and ("Requested: " .. Settings.SelectedKey) or "BuyKey remote not found", Kind = ok and "success" or "info", Duration = 2})
+        end,
+    })
+    KeySec:Button({
+        Title = "Open Selected Key (1x)",
+        Callback = function()
+            local funcs = getFuncs()
+            local rem = funcs and funcs:FindFirstChild("UseKey")
+            local ok = rem and rem:IsA("RemoteFunction") and pcall(function() rem:InvokeServer(Settings.SelectedKey, "Open1") end)
+            UI:Notify({Title = "Open Key", Content = ok and ("Opened: " .. Settings.SelectedKey) or "UseKey remote not found", Kind = ok and "success" or "info", Duration = 2})
+        end,
+    })
+    KeySec:Toggle({
+        Title = "Auto Buy Key", Value = false, Flag = "AutoBuyKey",
+        Callback = function(v) Settings.AutoBuyKey = v end,
+    })
+    KeySec:Toggle({
+        Title = "Auto Open Key", Value = false, Flag = "AutoOpenKey",
+        Callback = function(v) Settings.AutoOpenKey = v end,
+    })
+
+    local fruitStockList = {
+        "SpinFruit", "ClearFruit", "BombFruit", "SpikeFruit",
+        "BarrierFruit", "GumFruit", "SmokeFruit", "FlameFruit",
+        "SandFruit", "IceFruit", "DarkFruit", "QuakeFruit",
+        "LightFruit", "MagmaFruit", "RumbleFruit", "GravityFruit",
+        "PawFruit", "ShadowFruit", "VenomFruit", "ControlFruit",
+        "SpiritFruit", "SnowFruit", "BuddhaFruit", "MagnetFruit",
+        "StringFruit", "GasFruit", "DragonFruit", "OpFruit",
+    }
+    KeySec:Dropdown({
+        Title = "Select Stock Fruit", Values = fruitStockList, Value = "DragonFruit", Flag = "SelectedStockFruit",
+        Callback = function(v) Settings.SelectedStockFruit = v end,
+    })
+    KeySec:Button({
+        Title = "Buy Stock Fruit Now",
+        Callback = function()
+            local funcs = getFuncs()
+            local rem = funcs and funcs:FindFirstChild("BuyFruitStock")
+            local ok = rem and rem:IsA("RemoteFunction") and pcall(function() rem:InvokeServer(Settings.SelectedStockFruit, true) end)
+            UI:Notify({Title = "Fruit Stock", Content = ok and ("Requested: " .. Settings.SelectedStockFruit) or "BuyFruitStock remote not found", Kind = ok and "success" or "info", Duration = 2})
+        end,
+    })
+    KeySec:Toggle({
+        Title = "Auto Buy Selected Stock Fruit", Value = false, Flag = "AutoBuyStockFruit",
+        Callback = function(v) Settings.AutoBuyStockFruit = v end,
+    })
+
+    local shopNpcMap = {
+        ["Soru"] = {"soru"},
+        ["Buso Haki"] = {"buso", "armament"},
+        ["Ken Haki"] = {"ken", "observ"},
+        ["Katana"] = {"katana"},
+        ["Pipe Sword"] = {"pipe"},
+        ["Mini Race"] = {"mini"},
+        ["Water Style"] = {"water"},
+        ["Dragon Claw"] = {"dragon claw", "dragon"},
+        ["Sky Jump"] = {"sky", "geppo"},
+        ["Reroll Race"] = {"race", "reroll"},
+        ["Reset Stat"] = {"stat", "reset"},
+        ["Black Leg"] = {"black leg", "sanji"},
+        ["Cyborg"] = {"cyborg"},
+    }
+    local shopNames = {
+        "Soru", "Buso Haki", "Ken Haki", "Katana", "Pipe Sword",
+        "Mini Race", "Water Style", "Dragon Claw", "Sky Jump",
+        "Reroll Race", "Reset Stat", "Black Leg", "Cyborg",
+    }
+    local selShopNpc = shopNames[1]
+    local ShopTpSec = ShopTab:Section({Title = "Ability & Style Shop Teleports", Side = "Right"})
+    ShopTpSec:Dropdown({
+        Title = "Select Shop NPC", Values = shopNames, Value = shopNames[1], Flag = "SelectedShopNPC",
+        Callback = function(v) selShopNpc = v end,
+    })
+    ShopTpSec:Button({
+        Title = "TP To Selected Shop NPC",
+        Callback = function()
+            local keywords = shopNpcMap[selShopNpc] or {selShopNpc:lower()}
+            for _, folderName in ipairs({"AllNPC", "NPCs", "NPC"}) do
+                local folder = Workspace:FindFirstChild(folderName)
+                if folder then
+                    for _, npc in ipairs(folder:GetChildren()) do
+                        local lname = npc.Name:lower()
+                        for _, kw in ipairs(keywords) do
+                            if lname:find(kw, 1, true) then
+                                local r = npc:IsA("BasePart") and npc or (npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChildOfClass("BasePart"))
+                                if r then
+                                    DisableHoverLock()
+                                    FastTeleport(r.CFrame + Vector3.new(0, 3, 2), true)
+                                    UI:Notify({Title = "Shop Teleport", Content = "Teleported to " .. npc.Name, Kind = "success", Duration = 2})
+                                    return
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            UI:Notify({Title = "Shop Teleport", Content = selShopNpc .. " NPC not found in current sea", Kind = "info", Duration = 2})
+        end,
+    })
+end
+
+end
 
 -- ============================================================
 -- 12. TAB: PvP
 -- ============================================================
-local PvPTab = Window:Tab({Title = "PvP", Icon = "crosshair"})
+do
+local PvPTab = Window:Tab({Title = "PvP"})
 
 local PvPTargetSec = PvPTab:Section({Title = "Target Player", Side = "Left"})
 local initialPlayers = GetPlayerNames()
 Settings.TargetPlayerName = initialPlayers[1]
 local PlayerDropdown = PvPTargetSec:Dropdown({
-    Title = "Chọn Player", Values = initialPlayers, Value = initialPlayers[1], Flag = "TargetPlayer",
+    Title = "Select Player", Values = initialPlayers, Value = initialPlayers[1], Flag = "TargetPlayer",
     Callback = function(v)
         Settings.TargetPlayerName = v
         if Settings.SpectatePlayer then SpectateTarget(true) end
     end,
 })
 PvPTargetSec:Button({
-    Title = "Refresh Player List", Icon = "refresh-cw",
+    Title = "Refresh Player List",
     Callback = function()
         local pList = GetPlayerNames()
         pcall(function()
             if PlayerDropdown.Refresh then PlayerDropdown:Refresh(pList)
             elseif PlayerDropdown.SetValues then PlayerDropdown:SetValues(pList) end
         end)
-        UI:Notify({Title = "Players", Content = "Có " .. #pList .. " player trong server", Kind = "info", Duration = 2})
+        UI:Notify({Title = "Players", Content = #pList .. " player(s) in server", Kind = "info", Duration = 2})
     end,
 })
 PvPTargetSec:Toggle({
@@ -3433,40 +6839,43 @@ PvPTargetSec:Toggle({
     end,
 })
 PvPTargetSec:Button({
-    Title = "Teleport Tới Player", Icon = "navigation",
+    Title = "Teleport To Player",
     Callback = function()
         local target = FindTargetPlayer()
         local tRoot = target and target.Character and target.Character:FindFirstChild("HumanoidRootPart")
         if tRoot then
             DisableHoverLock()
             FastTeleport(tRoot.CFrame * CFrame.new(0, 3, -5), true)
-            UI:Notify({Title = "PvP TP", Content = "Đã TP tới " .. target.Name, Kind = "success", Duration = 2})
+            UI:Notify({Title = "PvP TP", Content = "Teleported to " .. target.Name, Kind = "success", Duration = 2})
         else
-            UI:Notify({Title = "PvP TP", Content = "Không tìm thấy nhân vật mục tiêu", Kind = "error", Duration = 2})
+            UI:Notify({Title = "PvP TP", Content = "Target character not found", Kind = "error", Duration = 2})
         end
     end,
 })
 
-local PvPSupportSec = PvPTab:Section({Title = "Hỗ Trợ PvP", Side = "Right"})
+local PvPSupportSec = PvPTab:Section({Title = "PvP Support", Side = "Right"})
 PvPSupportSec:Toggle({
-    Title = "Lock Mặt Vào Player", Value = false, Flag = "LockLookAtPlayer",
+    Title = "Lock Look At Player", Value = false, Flag = "LockLookAtPlayer",
     Callback = function(v) Settings.LockLookAtPlayer = v end,
 })
 PvPSupportSec:Toggle({
-    Title = "Auto Trốn Khi Máu Thấp", Value = false, Flag = "SafeEscapePvP",
+    Title = "Auto Escape At Low HP", Value = false, Flag = "SafeEscapePvP",
     Callback = function(v) Settings.SafeEscapePvP = v end,
 })
 PvPSupportSec:Slider({
-    Title = "Mức Máu Trốn (%)", Step = 5, Value = {Min = 5, Max = 60, Default = 20}, Flag = "SafeEscapeHP",
+    Title = "Escape HP Threshold (%)", Step = 5, Value = {Min = 5, Max = 60, Default = 20}, Flag = "SafeEscapeHP",
     Callback = function(v) Settings.SafeEscapeHP = v end,
 })
+
+end
 
 -- ============================================================
 -- 13. TAB: Setting
 -- ============================================================
+do
 Window:Divider()
 
-local SettingsTab = Window:Tab({Title = "Setting", Icon = "sliders"})
+local SettingsTab = Window:Tab({Title = "Setting"})
 
 local UISec = SettingsTab:Section({Title = "Interface & Server", Side = "Left"})
 UISec:Slider({
@@ -3478,13 +6887,13 @@ UISec:Keybind({
     OnChange = function(name) Window:SetToggleKey(name) end,
 })
 UISec:Button({
-    Title = "Rejoin Server", Icon = "refresh-cw",
+    Title = "Rejoin Server",
     Callback = function()
         game:GetService("TeleportService"):Teleport(game.PlaceId, Player)
     end,
 })
 UISec:Button({
-    Title = "Server Hop", Icon = "globe",
+    Title = "Server Hop",
     Callback = function()
         ServerHop()
     end,
@@ -3492,27 +6901,57 @@ UISec:Button({
 
 local CfgSec = SettingsTab:Section({Title = "Config", Side = "Right"})
 CfgSec:Button({
-    Title = "Save Config", Icon = "check",
+    Title = "Save Config",
     Callback = function()
-        UI:Notify({Title = "Config", Content = Window:SaveConfig("KingLegacy") and "Đã lưu!" or "Executor không hỗ trợ", Kind = "success", Duration = 2})
+        UI:Notify({Title = "Config", Content = Window:SaveConfig("KingLegacy") and "Config saved!" or "Executor not supported", Kind = "success", Duration = 2})
     end,
 })
 CfgSec:Button({
-    Title = "Load Config", Icon = "layers",
+    Title = "Load Config",
     Callback = function()
-        UI:Notify({Title = "Config", Content = Window:LoadConfig("KingLegacy") and "Đã load!" or "Chưa có config", Kind = "info", Duration = 2})
+        UI:Notify({Title = "Config", Content = Window:LoadConfig("KingLegacy") and "Config loaded!" or "No saved config found", Kind = "info", Duration = 2})
     end,
 })
 CfgSec:Button({
-    Title = "Destroy UI", Icon = "x",
+    Title = "Destroy UI",
     Callback = function()
         _running = false
+        Settings.AutoDungeon = false
+        Settings.WhiteScreen = false
+        pcall(function() RunService:Set3dRenderingEnabled(true) end)
+        if typeof(getgenv) == "function" then
+            pcall(function() getgenv().PosMonSkill = nil end)
+        end
+        if Settings.CleanupDungeon then Settings.CleanupDungeon() end
         DisableHoverLock()
         SpectateTarget(false)
         if _waterPlatform and _waterPlatform.Parent then _waterPlatform:Destroy() end
         Window:Destroy()
     end,
 })
+
+local FpsSec = SettingsTab:Section({Title = "FPS Boost & Anti-Lag", Side = "Left"})
+FpsSec:Toggle({
+    Title = "White Screen (Disable 3D Render)", Value = false, Flag = "WhiteScreen",
+    Callback = function(v) Settings.WhiteScreen = v end,
+})
+FpsSec:Toggle({
+    Title = "Hide LevelUp / ItemDrop UI", Value = false, Flag = "HideLevelUpUI",
+    Callback = function(v) Settings.HideLevelUpUI = v end,
+})
+FpsSec:Toggle({
+    Title = "Hide Mob Health Bars", Value = false, Flag = "HideMobHealth",
+    Callback = function(v) Settings.HideMobHealth = v end,
+})
+FpsSec:Toggle({
+    Title = "Delete Damage Text", Value = false, Flag = "DeleteDamageText",
+    Callback = function(v) Settings.DeleteDamageText = v end,
+})
+FpsSec:Toggle({
+    Title = "Hide Heavy Effects", Value = false, Flag = "DeleteHeavyEffects",
+    Callback = function(v) Settings.DeleteHeavyEffects = v end,
+})
+end
 
 -- ============================================================
 -- STATUS UPDATER
@@ -3528,7 +6967,7 @@ spawn(function()
             local hakiState = IsHakiActive(Player.Character) and "ON" or "OFF"
 
             StatusParagraph:SetDesc(string.format(
-                "🌊 %s | Level: %d / 5450\n📋 Quest: %s\n🎯 Target: %s\n❤ HP: %d%% | 🛡 Haki: %s\n🧲 Bring: %d mobs | 🦅 Hover: %s\n⚡ %s",
+                "Sea: %s | Level: %d / 5450\nQuest: %s\nTarget: %s\nHP: %d%% | Haki: %s\nBring: %d mobs | Hover: %s\nStatus: %s",
                 sea, level, questName, mobName, hp, hakiState, _bringCount, Settings.HoverFarm and ("ON (" .. Settings.HoverHeight .. ")") or "OFF", _farmStatus
             ))
 
@@ -3538,13 +6977,27 @@ spawn(function()
             ))
 
             Sea2TimerParagraph:SetDesc(GetSea2LiveStatusText())
+            if _hakiState.sea3TimerParagraph and _hakiState.getSea3LiveStatusText then
+                _hakiState.sea3TimerParagraph:SetDesc(_hakiState.getSea3LiveStatusText())
+            end
+
+            if DungeonStatusParagraph then
+                local friendSummary = (_hakiState.getDungeonFriendSummary and _hakiState.getDungeonFriendSummary()) or (Settings.DungeonPartnerMode and "ON" or "OFF (Solo)")
+                DungeonStatusParagraph:SetDesc(string.format(
+                    "Mode: %s | Style: %s\nFriends Co-op: %s\nStatus: %s",
+                    Settings.DungeonMode or Settings.DungeonDifficulty or "Normal",
+                    Settings.DungeonPlayMode or "Hover Above (Tween)",
+                    friendSummary,
+                    Settings.DungeonStatus or "Idle"
+                ))
+            end
 
             local matEntry = GetMaterialEntry(Settings.SelectedMaterial)
             if matEntry then
                 local matCount = GetMaterialCount(matEntry.Name)
                 MaterialStatusParagraph:SetDesc(string.format(
-                    "📦 Nguyên liệu: %s (Sea %d)\n🎯 Mob: %s\n🎒 Số lượng trong túi: %d\n⚡ Trạng thái: %s",
-                    matEntry.Name, matEntry.Sea, table.concat(matEntry.Mobs, ", "), matCount, Settings.AutoFarmMaterial and "Đang farm" or "Tắt"
+                    "Material: %s (Sea %d)\nMob: %s\nIn Bag: %d\nStatus: %s",
+                    matEntry.Name, matEntry.Sea, table.concat(matEntry.Mobs, ", "), matCount, Settings.AutoFarmMaterial and "Farming" or "Off"
                 ))
             end
 
@@ -3552,36 +7005,33 @@ spawn(function()
             local gameSessionTime = FormatTimeMMSS(tick() - _scriptStartTime)
             local lighting = game:GetService("Lighting")
             local clockTime = lighting and lighting.ClockTime or 12
-            local dayNight = (clockTime >= 6 and clockTime < 18) and "Ban Ngày ☀️" or "Ban Đêm 🌙"
+            local dayNight = (clockTime >= 6 and clockTime < 18) and "Day" or "Night"
             local inGameTimeStr = (lighting and lighting.TimeOfDay and lighting.TimeOfDay:sub(1, 5) or "12:00") .. " (" .. dayNight .. ")"
             local realTimeStr = os.date("%H:%M:%S")
             local pCount = #Players:GetPlayers() .. "/" .. Players.MaxPlayers
 
             HomeTimeParagraph:SetDesc(string.format(
-                "🖥 Time SV: %s\n⏱ Time Game (Session): %s\n🌞 Giờ Trong Game: %s\n🕰 Giờ Thực Tế: %s\n👥 Server Players: %s",
+                "Server Time: %s\nGame Time (Session): %s\nIn-Game Time: %s\nReal Time: %s\nServer Players: %s",
                 svTime, gameSessionTime, inGameTimeStr, realTimeStr, pCount
             ))
 
             HomeStatsParagraph:SetDesc(string.format(
-                "👤 Player: %s\n📊 Level: %s / 5450\n💵 Tiền (Beli): %s\n💎 Gem: %s\n🏴‍☠️ Bounty: %s\n🍎 Fruit: %s\n❤ HP: %d%%",
+                "Player: %s\nLevel: %s / 5450\nBeli: %s\nGems: %s\nBounty: %s\nFruit: %s\nHP: %d%%",
                 Player.Name, FormatNumber(level), FormatNumber(GetBeli()), FormatNumber(GetGems()), FormatNumber(GetBounty()), GetEquippedFruitName(), hp
             ))
         end)
-        wait(0.5)
+        wait(1)
     end
 end)
 
 -- ============================================================
 -- START
 -- ============================================================
-Window:SelectTab(2) -- Mở sẵn tab "Farm"
+Window:SelectTab(2) -- Open "Farm" tab by default
 loading:Success("Loaded", "King Legacy Hub 13 Tabs loaded!")
 Window:SetVisible(true, nil, true)
 
 AntiAFK()
-if Settings.AutoHaki then
-    task.spawn(function() pcall(ActivateHaki) end)
-end
 spawn(FarmQuest)
 spawn(FarmBoss)
 
